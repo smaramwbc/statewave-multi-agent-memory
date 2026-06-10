@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Callable
 
 import httpx
-from groq import AsyncGroq
+import litellm
 
 from agents.base import AsyncStatewaveClient, StatewaveError
 
@@ -30,11 +30,13 @@ async def run_analyst(
     agent_id: str,
     source_file: str,
     subject_id: str,
-    groq_api_key: str,
+    llm_api_key: str,
+    llm_model: str,
     statewave_url: str,
     statewave_api_key: str | None,
     on_log: Callable[[str, str], None],
     on_memory_update: Callable[[str, dict], None],
+    skip_competitors: set[str] | None = None,
 ) -> dict:
     on_log(agent_id, f"Starting — source: [bold]{Path(source_file).name}[/bold]")
 
@@ -44,6 +46,10 @@ async def run_analyst(
     competitors = source_data.get("competitors", [])
 
     on_log(agent_id, f"Loaded {len(competitors)} competitors from [dim]{source_label}[/dim] ({published})")
+
+    if skip_competitors:
+        competitors = [c for c in competitors if c.get("name", "") not in skip_competitors]
+        on_log(agent_id, f"Skipping pre-seeded competitors: {', '.join(skip_competitors)}")
 
     episodes_written = 0
     supersessions_total = 0
@@ -76,7 +82,6 @@ async def run_analyst(
 
         # Call LLM to extract findings
         on_log(agent_id, "Calling LLM to extract findings...")
-        groq = AsyncGroq(api_key=groq_api_key, timeout=httpx.Timeout(60.0, connect=10.0))
         try:
             user_msg = (
                 f"Source document ({source_label}, {published}):\n"
@@ -85,14 +90,16 @@ async def run_analyst(
                 f"{assembled.strip() if assembled.strip() else '(no memories yet)'}\n\n"
                 "Extract findings for each competitor in this source document."
             )
-            resp = await groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+            resp = await litellm.acompletion(
+                model=llm_model,
+                api_key=llm_api_key,
                 messages=[
                     {"role": "system", "content": _SYSTEM_PROMPT},
                     {"role": "user", "content": user_msg},
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.1,
+                timeout=60.0,
             )
             raw = resp.choices[0].message.content or "{}"
             parsed = json.loads(raw)
@@ -101,10 +108,7 @@ async def run_analyst(
                 findings = parsed
         except Exception as e:
             on_log(agent_id, f"[red]LLM error: {e}[/red]")
-            await groq.close()
             return {"episodes": 0, "supersessions": 0, "error": str(e)}
-        finally:
-            await groq.close()
 
         on_log(agent_id, f"LLM returned [green]{len(findings)} findings[/green]")
 

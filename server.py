@@ -10,17 +10,18 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-
-import httpx
+import re
 from pathlib import Path
 from uuid import uuid4
+
+import httpx
+import litellm
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from groq import AsyncGroq
 from sse_starlette.sse import EventSourceResponse
 
 from agents.analyst import run_analyst
@@ -107,10 +108,11 @@ async def run_agents():
         try:
             await sw.delete_subject(SUBJECT_ID)
             await broadcast({"type": "status", "msg": "Reset: prior subject cleared"})
-        except (StatewaveError, Exception):
+        except (StatewaveError, httpx.RequestError):
             await broadcast({"type": "status", "msg": "Starting fresh (no prior data)"})
 
-    groq_key = os.environ.get("LLM_API_KEY", "")
+    llm_key = os.environ.get("LLM_API_KEY", "")
+    llm_model = os.environ.get("LLM_MODEL", "groq/llama-3.3-70b-versatile")
     sw_url = os.environ.get("STATEWAVE_URL", "http://localhost:8100")
     sw_key = os.environ.get("STATEWAVE_API_KEY")
 
@@ -185,22 +187,28 @@ async def run_agents():
             "msg": "Waiting for TechCrunch and Earnings agents to commit contradicting facts...",
         })
 
-        # All 3 agents run concurrently — no stagger needed since seed is already committed
+        # All 3 agents run concurrently — no stagger needed since seed is already committed.
+        # Bloomberg skips Stripe: that fact was already seeded above, so re-extracting it
+        # from bloomberg.json would create a bloomberg→bloomberg supersession and make the
+        # "1 conflict resolved" count non-deterministic.
         bloomberg_task = asyncio.create_task(run_analyst(
             agent_id="bloomberg",
             source_file=str(SOURCES_DIR / "bloomberg.json"),
             subject_id=SUBJECT_ID,
-            groq_api_key=groq_key,
+            llm_api_key=llm_key,
+            llm_model=llm_model,
             statewave_url=sw_url,
             statewave_api_key=sw_key,
             on_log=on_log,
             on_memory_update=on_memory_update,
+            skip_competitors={"Stripe"},
         ))
         tc_task = asyncio.create_task(run_analyst(
             agent_id="techcrunch",
             source_file=str(SOURCES_DIR / "techcrunch.json"),
             subject_id=SUBJECT_ID,
-            groq_api_key=groq_key,
+            llm_api_key=llm_key,
+            llm_model=llm_model,
             statewave_url=sw_url,
             statewave_api_key=sw_key,
             on_log=on_log,
@@ -210,7 +218,8 @@ async def run_agents():
             agent_id="earnings",
             source_file=str(SOURCES_DIR / "earnings.json"),
             subject_id=SUBJECT_ID,
-            groq_api_key=groq_key,
+            llm_api_key=llm_key,
+            llm_model=llm_model,
             statewave_url=sw_url,
             statewave_api_key=sw_key,
             on_log=on_log,
@@ -260,10 +269,12 @@ async def ask(body: dict):
     await broadcast({"type": "synthesis_context",
                      "fact_count": len(facts), "token_estimate": token_est})
 
-    groq = AsyncGroq(api_key=os.environ.get("LLM_API_KEY", ""), timeout=httpx.Timeout(60.0, connect=10.0))
+    llm_key = os.environ.get("LLM_API_KEY", "")
+    llm_model = os.environ.get("LLM_MODEL", "groq/llama-3.3-70b-versatile")
     try:
-        stream = await groq.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+        stream = await litellm.acompletion(
+            model=llm_model,
+            api_key=llm_key,
             messages=[
                 {
                     "role": "system",
@@ -284,6 +295,7 @@ async def ask(body: dict):
             ],
             temperature=0.2,
             stream=True,
+            timeout=60.0,
         )
         async for chunk in stream:
             token = chunk.choices[0].delta.content
@@ -292,8 +304,6 @@ async def ask(body: dict):
         await broadcast({"type": "synthesis_done"})
     except Exception as e:
         await broadcast({"type": "synthesis_error", "msg": str(e)})
-    finally:
-        await groq.close()
 
     return {"status": "ok"}
 
@@ -310,8 +320,6 @@ async def get_memories():
 
 
 # ── Markup stripping ──────────────────────────────────────────────────────────
-
-import re
 
 _MARKUP_RE = re.compile(r"\[/?[a-zA-Z #0-9_]+\]")
 
