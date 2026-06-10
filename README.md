@@ -40,7 +40,7 @@ Three analyst agents ingest conflicting source documents concurrently. Watch Sta
 
 Statewave is an open-source memory runtime for AI agents. You give it raw events (episodes); it compiles them into typed, conflict-resolved memories; your agents query it to get ranked, token-bounded context ready to drop into a prompt. No GPU. No vector database. No application-level merge logic.
 
-![How Statewave works](/docs/images/how-statewave-works-dark.png)
+![How Statewave works](docs/images/how-statewave-works-dark.png)
 
 The loop: **Ingest → Compile → Use**
 
@@ -94,7 +94,7 @@ Every agent follows the same three-step loop:
 Three concurrent agents share a single Statewave subject. The FastAPI server orchestrates the agents and pushes live updates to the browser via SSE. Statewave runs as a separate local service.
 
 <picture>
-  <img alt="Multi-Agent Memory architecture" src="docs/images/statewave_multi_agent_memory_final_archietecture_diagram.jpeg">
+  <img alt="Multi-Agent Memory architecture" src="docs/images/architecture.jpeg">
 </picture>
 
 Demo interface during a full multi-agent run:

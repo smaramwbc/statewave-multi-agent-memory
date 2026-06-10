@@ -49,6 +49,10 @@ async def run_analyst(
 
     if skip_competitors:
         competitors = [c for c in competitors if c.get("name", "") not in skip_competitors]
+        # The LLM prompt is built from source_data, not the `competitors` list, so
+        # filtering the list alone has no effect — mirror the filter into source_data
+        # so the skipped competitor never reaches the model.
+        source_data = {**source_data, "competitors": competitors}
         on_log(agent_id, f"Skipping pre-seeded competitors: {', '.join(skip_competitors)}")
 
     episodes_written = 0
@@ -117,6 +121,11 @@ async def run_analyst(
             if not isinstance(finding, dict):
                 continue
             competitor = finding.get("competitor", "unknown")
+            # Defense-in-depth: skip pre-seeded competitors even if the model echoes
+            # one back from recalled memory context, so we never double-commit (e.g. a
+            # bloomberg→bloomberg supersession of the seeded Stripe fact).
+            if skip_competitors and competitor in skip_competitors:
+                continue
             pricing = finding.get("pricing_model", "")
             positioning = finding.get("market_positioning", "")
             differentiators = finding.get("key_differentiators", [])
