@@ -94,9 +94,7 @@ Every agent follows the same three-step loop:
 Three concurrent agents share a single Statewave subject. The FastAPI server orchestrates the agents and pushes live updates to the browser via SSE. Statewave runs as a separate local service.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="docs/architecture-light.svg">
-  <img alt="Multi-Agent Memory architecture" src="docs/architecture-light.svg">
+  <img alt="Multi-Agent Memory architecture" src="docs/images/statewave_multi_agent_memory_final_archietecture_diagram.jpeg">
 </picture>
 
 Demo interface during a full multi-agent run:
