@@ -8,6 +8,4 @@ __pycache__/
 node_modules/
 inspector/node_modules/
 CLAUDE.md
-AGENTS.md
 .claude/
-.github

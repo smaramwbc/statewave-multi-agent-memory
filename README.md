@@ -1,10 +1,10 @@
-p ![Banner](./docs/images/banner.jpeg)
+![Banner](./docs/images/banner.jpeg)
 
 # Multi-Agent Memory with Statewave
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
-[![Statewave v0.9.0](https://img.shields.io/badge/statewave-v0.9.0-7c3aed.svg)](https://docs.statewave.dev)
+[![Statewave v1.0](https://img.shields.io/badge/statewave-v1.0-7c3aed.svg)](https://statewave.ai)
 
 Three analyst agents ingest conflicting source documents concurrently. Watch Statewave detect the contradiction, supersede the stale fact, and serve the correct answer automatically, with no merge logic written by you.
 
@@ -44,7 +44,7 @@ Statewave is an open-source memory runtime for AI agents. You give it raw events
 
 The loop: **Ingest → Compile → Use**
 
-Full documentation at [docs.statewave.dev](https://docs.statewave.dev).
+Full documentation at [statewave.ai](https://statewave.ai).
 
 ---
 
@@ -93,7 +93,11 @@ Every agent follows the same three-step loop:
 
 Three concurrent agents share a single Statewave subject. The FastAPI server orchestrates the agents and pushes live updates to the browser via SSE. Statewave runs as a separate local service.
 
-![Multi-Agent Memory architecture](docs/images/system-archetiecture-flow.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/architecture-light.svg">
+  <img alt="Multi-Agent Memory architecture" src="docs/architecture-light.svg">
+</picture>
 
 Demo interface during a full multi-agent run:
 
@@ -104,9 +108,9 @@ Demo interface during a full multi-agent run:
 ## Prerequisites
 
 - **Docker** and **Docker Compose**: required for Option A (recommended)
-- **LLM API key** from any supported provider
+- **LLM API key** from your Groq account (default) or any provider supported by LiteLLM (set `LLM_MODEL` accordingly)
 - **Python 3.11+**: only needed for Option B (run without Docker)
-- **Node.js 18+**: optional, for the audit inspector only
+- **Node.js 20+**: optional, for the audit inspector only
 
 ---
 
@@ -119,7 +123,7 @@ One command brings up the Statewave backend, its database, and the demo app toge
 **1. Clone this repo**
 
 ```bash
-git clone https://github.com/statewave-ai/statewave-multi-agent-memory
+git clone https://github.com/smaramwbc/statewave-multi-agent-memory
 cd statewave-multi-agent-memory
 ```
 
@@ -148,7 +152,7 @@ Use this if you prefer to run the demo server outside Docker while still running
 **1. Clone this repo**
 
 ```bash
-git clone https://github.com/statewave-ai/statewave-multi-agent-memory
+git clone https://github.com/smaramwbc/statewave-multi-agent-memory
 cd statewave-multi-agent-memory
 ```
 
@@ -209,6 +213,7 @@ The Bloomberg document intentionally contains a pre-reversal figure. The conflic
 | Variable            | Required | Default                 | Description                                                                               |
 | ------------------- | -------- | ----------------------- | ----------------------------------------------------------------------------------------- |
 | `LLM_API_KEY`       | Yes      | —                       | API key for your LLM provider                                                             |
+| `LLM_MODEL`         | No       | `groq/llama-3.3-70b-versatile` | LiteLLM model string — change to use a different provider (e.g. `openai/gpt-4o`) |
 | `STATEWAVE_URL`     | No       | `http://localhost:8100` | Statewave server base URL                                                                 |
 | `STATEWAVE_API_KEY` | No       | —                       | API key if your Statewave instance has auth enabled                                       |
 | `APP_SECRET`        | No       | —                       | When set, all demo API endpoints require `X-API-Key: <value>`. Leave unset for local dev. |
