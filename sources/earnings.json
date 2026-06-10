@@ -1,0 +1,28 @@
+{
+  "source": "earnings_call_q1_2026",
+  "published": "2026-05-20",
+  "headline": "Q1 2026 Earnings Roundup: Square Misses Revenue, Stripe Developers Surge, Adyen Volume Grows",
+  "competitors": [
+    {
+      "name": "Square",
+      "pricing_model": "Square for Retail Plus missed Q1 revenue targets by 8 percent; company announced 49 dollar monthly price will hold through 2026 but hardware attach rate is declining",
+      "market_positioning": "Physical retail focus under pressure from e-commerce shift; Cash App growth partially offsets hardware slowdown but investor confidence declining",
+      "key_differentiators": ["Hardware ecosystem", "POS integration", "Cash App cross-sell"],
+      "confidence_notes": "Block Q1 earnings call May 8 2026; CFO cited macro headwinds in SMB physical retail sector as primary drag"
+    },
+    {
+      "name": "Stripe",
+      "pricing_model": "Developer ecosystem growth accelerating despite pricing uncertainty; 2.9% plus 30 cents remains the active rate per latest available data at time of this report",
+      "market_positioning": "Strong developer platform metrics with 40 percent year-over-year growth in new API integrations suggesting pricing reversion has stabilized the developer base",
+      "key_differentiators": ["Developer APIs", "Global coverage", "Instant payouts", "API integration growth"],
+      "confidence_notes": "Stripe private company metrics sourced from secondary market analysis and developer survey data May 2026"
+    },
+    {
+      "name": "Adyen",
+      "pricing_model": "Total processed volume up 22 percent year-over-year in Q1; interchange plus model generating strong net revenue retention among enterprise clients",
+      "market_positioning": "Enterprise segment accelerating; new flat-rate tier expected to contribute meaningfully to 2026 transaction volume without cannibalizing enterprise margins",
+      "key_differentiators": ["Enterprise scale", "Unified commerce", "Direct acquiring", "Volume growth"],
+      "confidence_notes": "Adyen Q1 2026 earnings published May 15; processed volume figures verified against Amsterdam stock exchange filing"
+    }
+  ]
+}

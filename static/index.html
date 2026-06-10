@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Statewave Multi-Agent Memory</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --border:    #30363d;
+    --text:      #c9d1d9;
+    --muted:     #8b949e;
+    --accent:    #58a6ff;
+    --green:     #3fb950;
+    --red:       #f85149;
+    --yellow:    #d29922;
+    --user-bg:   #1f6feb;
+    --agent-bg:  #1c2128;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", monospace;
+    font-size: 13px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 14px; font-weight: 600; color: var(--accent); flex: 1; }
+  #subject-badge {
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 12px;
+  }
+  #run-btn {
+    background: var(--green);
+    color: #000;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  #status-bar {
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 200px;
+    text-align: right;
+  }
+
+  /* ── Main layout ── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    gap: 0;
+  }
+
+  /* ── Agents + Memory row ── */
+  .agents-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 280px;
+    gap: 1px;
+    background: var(--border);
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .agent-panel, .memory-panel {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .panel-header .title { font-size: 12px; font-weight: 600; }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  .dot.running {
+    background: var(--green);
+    animation: pulse 1s infinite;
+  }
+  .dot.done { background: var(--accent); }
+  .dot.error { background: var(--red); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+
+  .agent-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 10px;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .agent-log p { margin: 0; color: var(--muted); word-break: break-word; }
+  .agent-log p.highlight { color: var(--text); }
+  .agent-log p.conflict  { color: var(--yellow); font-weight: 600; }
+  .agent-log p.done-msg  { color: var(--green); font-weight: 600; }
+  .agent-log p.error-msg { color: var(--red); }
+  .agent-log p.recalled  {
+    color: #4a90d9;
+    font-style: italic;
+    padding-left: 10px;
+    border-left: 2px solid #1f3a5f;
+    margin: 1px 0;
+  }
+
+  /* ── Memory panel ── */
+  .memory-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 10px;
+  }
+  .mem {
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 4px 6px;
+    margin-bottom: 6px;
+    border-radius: 4px;
+    word-break: break-word;
+    transition: all 0.4s ease;
+  }
+  .mem.active {
+    color: var(--green);
+    border-left: 2px solid var(--green);
+    background: rgba(63,185,80,0.05);
+  }
+  .mem.superseded {
+    color: var(--red);
+    text-decoration: line-through;
+    opacity: 0.55;
+    border-left: 2px solid var(--red);
+    background: rgba(248,81,73,0.07);
+  }
+  @keyframes flash-superseded {
+    0%   { background: rgba(248,81,73,0.35); }
+    100% { background: rgba(248,81,73,0.07); }
+  }
+  .mem.superseded.flash {
+    animation: flash-superseded 1.2s ease-out forwards;
+  }
+  .mem-source {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .memory-empty {
+    color: var(--muted);
+    font-size: 11px;
+    padding: 8px;
+    font-style: italic;
+  }
+
+  /* ── Chat section ── */
+  .chat-section {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border);
+    height: 320px;
+    flex-shrink: 0;
+  }
+  .chat-header {
+    padding: 6px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+  }
+  .chat-placeholder {
+    color: var(--muted);
+    font-size: 12px;
+    font-style: italic;
+    text-align: center;
+    margin-top: 20px;
+  }
+  .bubble {
+    max-width: 85%;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1.6;
+    word-break: break-word;
+  }
+  .bubble.user {
+    align-self: flex-end;
+    background: var(--user-bg);
+    color: #fff;
+    border-bottom-right-radius: 2px;
+  }
+  .bubble.agent {
+    align-self: flex-start;
+    max-width: 90%;
+    background: var(--agent-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 2px;
+  }
+  .bubble.agent .meta {
+    font-size: 10px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .bubble .cursor::after {
+    content: "▌";
+    animation: blink 0.8s infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  .chat-input-row {
+    display: flex;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #chat-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+  }
+  #chat-input:focus { border-color: var(--accent); }
+  #chat-input:disabled { opacity: 0.4; }
+  #send-btn {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ Statewave Multi-Agent Memory</h1>
+  <span id="subject-badge">subject: market-intel</span>
+  <span id="status-bar">Connect SSE to start</span>
+  <button id="run-btn" onclick="runAgents()">▶ Run Agents</button>
+</header>
+
+<div class="main">
+  <div class="agents-row">
+    <!-- Agent panels -->
+    <div class="agent-panel" id="panel-bloomberg">
+      <div class="panel-header">
+        <div class="dot" id="dot-bloomberg"></div>
+        <span class="title">Bloomberg</span>
+      </div>
+      <div class="agent-log" id="log-bloomberg">
+        <p>Waiting...</p>
+      </div>
+    </div>
+
+    <div class="agent-panel" id="panel-techcrunch">
+      <div class="panel-header">
+        <div class="dot" id="dot-techcrunch"></div>
+        <span class="title">TechCrunch</span>
+      </div>
+      <div class="agent-log" id="log-techcrunch">
+        <p>Waiting...</p>
+      </div>
+    </div>
+
+    <div class="agent-panel" id="panel-earnings">
+      <div class="panel-header">
+        <div class="dot" id="dot-earnings"></div>
+        <span class="title">Earnings Call</span>
+      </div>
+      <div class="agent-log" id="log-earnings">
+        <p>Waiting...</p>
+      </div>
+    </div>
+
+    <!-- Memory panel -->
+    <div class="memory-panel">
+      <div class="panel-header">
+        <span class="title" style="color: var(--yellow)">■ Live Memory</span>
+        <span id="conflict-badge" style="display:none; margin-left:auto; font-size:10px;
+              font-weight:700; background:var(--red); color:#fff; padding:1px 7px;
+              border-radius:10px;"></span>
+      </div>
+      <div class="memory-list" id="memory-list">
+        <div class="memory-empty">No memories yet. Run agents to populate.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat -->
+  <div class="chat-section">
+    <div class="chat-header">💬 Chat with Synthesis Agent</div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="chat-placeholder" id="chat-placeholder">
+        Run agents first, then ask questions about the market intelligence.
+      </div>
+    </div>
+    <div class="chat-input-row">
+      <input id="chat-input" type="text" placeholder="Run agents first..." disabled
+             onkeydown="if(event.key==='Enter') sendMessage()" />
+      <button id="send-btn" onclick="sendMessage()" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── State ─────────────────────────────────────────────────────────────────
+  let agentsRunning = false;
+  let agentsDone = false;
+  let currentAgentBubble = null;
+  let currentAgentBubbleText = "";
+  let totalConflicts = 0;
+
+  // ── SSE connection ─────────────────────────────────────────────────────────
+  const es = new EventSource('/events');
+
+  es.onopen = () => setStatus('Connected — click Run Agents to start');
+  es.onerror = () => setStatus('SSE connection lost — refresh page');
+
+  es.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    handleEvent(msg);
+  };
+
+  function handleEvent(msg) {
+    switch (msg.type) {
+      case 'status':
+        setStatus(msg.msg);
+        break;
+
+      case 'run_started':
+        clearAgentLogs();
+        clearMemory();
+        setStatus('Agents running...');
+        break;
+
+      case 'agent_log':
+        appendLog(msg.agent, msg.msg);
+        break;
+
+      case 'memory_update':
+        applyMemoryDiff(msg.diff);
+        break;
+
+      case 'agents_done':
+        agentsRunning = false;
+        agentsDone = true;
+        setDots('done');
+        setStatus(`Done — ${msg.supersessions} conflict${msg.supersessions !== 1 ? 's' : ''} resolved`);
+        document.getElementById('run-btn').disabled = false;
+        document.getElementById('run-btn').textContent = '↺ Re-run';
+        enableChat();
+        break;
+
+      case 'synthesis_start':
+        addUserBubble(msg.question);
+        currentAgentBubbleText = '';
+        currentAgentBubble = addAgentBubble('');
+        break;
+
+      case 'synthesis_context':
+        // shown in bubble meta
+        if (currentAgentBubble) {
+          const meta = currentAgentBubble.querySelector('.meta');
+          if (meta) meta.textContent =
+            `Statewave: ${msg.fact_count} active facts, ~${msg.token_estimate} tokens`;
+        }
+        break;
+
+      case 'synthesis_token':
+        currentAgentBubbleText += msg.token;
+        if (currentAgentBubble) {
+          const body = currentAgentBubble.querySelector('.body');
+          if (body) {
+            body.innerHTML = escapeHtml(currentAgentBubbleText) + '<span class="cursor"></span>';
+          }
+        }
+        scrollChat();
+        break;
+
+      case 'synthesis_done':
+        if (currentAgentBubble) {
+          const body = currentAgentBubble.querySelector('.body');
+          if (body) body.textContent = currentAgentBubbleText;
+        }
+        currentAgentBubble = null;
+        currentAgentBubbleText = '';
+        break;
+
+      case 'synthesis_error':
+        if (currentAgentBubble) {
+          const body = currentAgentBubble.querySelector('.body');
+          if (body) { body.textContent = 'Error: ' + msg.msg; body.style.color = 'var(--red)'; }
+        }
+        currentAgentBubble = null;
+        break;
+    }
+  }
+
+  // ── Run agents ─────────────────────────────────────────────────────────────
+  async function runAgents() {
+    if (agentsRunning) return;
+    agentsRunning = true;
+    document.getElementById('run-btn').disabled = true;
+    document.getElementById('run-btn').textContent = '▶ Running...';
+    setDots('running');
+    disableChat();
+
+    const r = await fetch('/run', { method: 'POST' });
+    if (!r.ok) {
+      setStatus('Failed to start agents');
+      document.getElementById('run-btn').disabled = false;
+      agentsRunning = false;
+    }
+  }
+
+  // ── Chat ───────────────────────────────────────────────────────────────────
+  async function sendMessage() {
+    if (!agentsDone) return;
+    const input = document.getElementById('chat-input');
+    const question = input.value.trim();
+    if (!question) return;
+    input.value = '';
+    input.disabled = true;
+    document.getElementById('send-btn').disabled = true;
+
+    await fetch('/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    });
+
+    input.disabled = false;
+    document.getElementById('send-btn').disabled = false;
+    input.focus();
+  }
+
+  // ── Memory panel ───────────────────────────────────────────────────────────
+  function applyMemoryDiff(diff) {
+    const list = document.getElementById('memory-list');
+
+    // Remove empty placeholder
+    const empty = list.querySelector('.memory-empty');
+    if (empty) empty.remove();
+
+    // Mark superseded — flash red to make conflict visible
+    const newSuperseded = diff.superseded || [];
+    newSuperseded.forEach(m => {
+      const el = document.getElementById('mem-' + m.id);
+      if (el) {
+        el.className = 'mem superseded flash';
+        // Remove flash class after animation so re-runs work
+        setTimeout(() => el.classList.remove('flash'), 1400);
+      }
+    });
+
+    // Update conflict counter badge
+    if (newSuperseded.length > 0) {
+      totalConflicts += newSuperseded.length;
+      const badge = document.getElementById('conflict-badge');
+      badge.style.display = 'inline';
+      badge.textContent = `${totalConflicts} conflict${totalConflicts !== 1 ? 's' : ''} resolved`;
+    }
+
+    // Add new memories
+    (diff.new || []).forEach(m => {
+      if (document.getElementById('mem-' + m.id)) return;
+      const el = document.createElement('div');
+      el.id = 'mem-' + m.id;
+      el.className = 'mem active';
+      const text = excerpt(m);
+      const src = m.source || (m.payload && m.payload.source_label) || '';
+      el.innerHTML = `<div>✓ ${escapeHtml(text)}</div>
+                      <div class="mem-source">${escapeHtml(src)}</div>`;
+      list.prepend(el);
+    });
+
+    // Always show active entries above superseded
+    _sortMemoryList();
+  }
+
+  function _sortMemoryList() {
+    const list = document.getElementById('memory-list');
+    const entries = Array.from(list.querySelectorAll('.mem'));
+    const active = entries.filter(e => e.classList.contains('active'));
+    const superseded = entries.filter(e => e.classList.contains('superseded'));
+    [...active, ...superseded].forEach(e => list.appendChild(e));
+  }
+
+  function excerpt(m) {
+    const c = m.content || m.text || (m.payload && m.payload.text) || '';
+    const clean = c.replace(/\n/g, ' ').trim();
+    return clean.substring(0, 140) + (clean.length > 140 ? '…' : '');
+  }
+
+  function clearMemory() {
+    const list = document.getElementById('memory-list');
+    list.innerHTML = '<div class="memory-empty">Agents running...</div>';
+    totalConflicts = 0;
+    const badge = document.getElementById('conflict-badge');
+    badge.style.display = 'none';
+    badge.textContent = '';
+  }
+
+  // ── Agent log ──────────────────────────────────────────────────────────────
+  function appendLog(agentId, msg) {
+    const log = document.getElementById('log-' + agentId);
+    if (!log) return;
+    const p = document.createElement('p');
+    const lower = msg.toLowerCase();
+    if (lower.includes('conflict') || lower.includes('superseded') || lower.includes('⚠')) {
+      p.className = 'conflict';
+    } else if (lower.includes('done.') || lower.startsWith('done')) {
+      p.className = 'done-msg';
+    } else if (lower.includes('error')) {
+      p.className = 'error-msg';
+    } else if (msg.trimStart().startsWith('←')) {
+      p.className = 'recalled';
+    } else if (lower.includes('committing') || lower.includes('recalled') || lower.includes('llm returned')) {
+      p.className = 'highlight';
+    }
+    p.textContent = msg;
+    log.appendChild(p);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function clearAgentLogs() {
+    ['bloomberg','techcrunch','earnings'].forEach(id => {
+      const log = document.getElementById('log-' + id);
+      if (log) log.innerHTML = '';
+    });
+  }
+
+  // ── Dots ───────────────────────────────────────────────────────────────────
+  function setDots(state) {
+    ['bloomberg','techcrunch','earnings'].forEach(id => {
+      const dot = document.getElementById('dot-' + id);
+      if (dot) dot.className = 'dot ' + state;
+    });
+  }
+
+  // ── Chat helpers ───────────────────────────────────────────────────────────
+  function addUserBubble(text) {
+    const placeholder = document.getElementById('chat-placeholder');
+    if (placeholder) placeholder.remove();
+    const msgs = document.getElementById('chat-messages');
+    const div = document.createElement('div');
+    div.className = 'bubble user';
+    div.textContent = text;
+    msgs.appendChild(div);
+    scrollChat();
+  }
+
+  function addAgentBubble(text) {
+    const msgs = document.getElementById('chat-messages');
+    const div = document.createElement('div');
+    div.className = 'bubble agent';
+    div.innerHTML = `<div class="meta">Synthesis Agent · Statewave memory</div>
+                     <div class="body">${escapeHtml(text)}<span class="cursor"></span></div>`;
+    msgs.appendChild(div);
+    scrollChat();
+    return div;
+  }
+
+  function scrollChat() {
+    const msgs = document.getElementById('chat-messages');
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function enableChat() {
+    const input = document.getElementById('chat-input');
+    input.disabled = false;
+    input.placeholder = 'Ask about the market intelligence...';
+    document.getElementById('send-btn').disabled = false;
+    input.focus();
+  }
+
+  function disableChat() {
+    document.getElementById('chat-input').disabled = true;
+    document.getElementById('send-btn').disabled = true;
+  }
+
+  function setStatus(msg) {
+    document.getElementById('status-bar').textContent = msg;
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+</script>
+</body>
+</html>
