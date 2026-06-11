@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from agents.analyst import run_analyst
+from agents.candidates import build_competitor_candidates
 from agents.base import AsyncStatewaveClient, StatewaveError
 
 load_dotenv()
@@ -125,19 +126,16 @@ async def run_agents():
         asyncio.create_task(broadcast({"type": "memory_update", "agent": agent_id, "diff": diff}))
 
     async def _seed_bloomberg_stripe() -> None:
-        """Commit Bloomberg's stale Stripe pricing directly — no LLM call needed.
-        This guarantees TechCrunch's correction will always have something to supersede,
-        regardless of Bloomberg's LLM response timing."""
-        prose = (
-            "Stripe pricing: 3.5% plus 35 cents per transaction for card payments, "
-            "raised from 2.9% effective May 1 amid margin pressure. "
-            "Market positioning: Premium pricing signals Stripe is moving upmarket "
-            "toward high-volume enterprise merchants away from SMB developers. "
-            "Key differentiators: Developer APIs, Global coverage, Instant payouts, Radar fraud tooling. "
-            "Source: bloomberg, published 2026-05-16. "
-            "Confidence: Bloomberg Intelligence estimates the increase adds roughly "
-            "140 million dollars in annualized revenue at current transaction volumes."
-        )
+        """Seed Bloomberg's stale Stripe pricing (3.5% + 35¢) as structured atomic
+        candidates — no LLM. The pricing candidate carries the authoritative v2
+        claim from the source, and positioning/differentiators are independent
+        atomic facts. Guarantees the later 2.9% source always has something to
+        supersede, while the independent Bloomberg facts survive that
+        supersession (the whole point of atomic structured candidates)."""
+        bloomberg = json.loads((SOURCES_DIR / "bloomberg.json").read_text(encoding="utf-8"))
+        stripe = next(c for c in bloomberg["competitors"] if c.get("name") == "Stripe")
+        published = bloomberg.get("published", "2026-05-16")
+        raw_text, candidates = build_competitor_candidates(stripe, "bloomberg", published)
         async with AsyncStatewaveClient(sw_url, sw_key) as sw:
             before_ids: set[str] = {m["id"] for m in await sw.search_memories(SUBJECT_ID)}
             await sw.post_episode(
@@ -145,11 +143,11 @@ async def run_agents():
                 source="bloomberg",
                 type="agent.analyst.findings",
                 payload={
-                    "text": prose,
+                    "text": raw_text,
+                    "statewave": {"memory_candidates": candidates},
                     "competitor": "Stripe",
-                    "pricing_model": "3.5% plus 35 cents per transaction",
                     "source_label": "bloomberg",
-                    "published": "2026-05-16",
+                    "published": published,
                 },
             )
             await sw.compile_memories(SUBJECT_ID)
@@ -187,6 +185,10 @@ async def run_agents():
             "msg": "Waiting for TechCrunch and Earnings agents to commit contradicting facts...",
         })
 
+        # One shared lock serializes each agent's post→compile→diff so concurrent
+        # agents never double-compile the same uncompiled episode.
+        compile_lock = asyncio.Lock()
+
         # All 3 agents run concurrently — no stagger needed since seed is already committed.
         # Bloomberg skips Stripe: that fact was already seeded above, so re-extracting it
         # from bloomberg.json would create a bloomberg→bloomberg supersession and make the
@@ -202,6 +204,7 @@ async def run_agents():
             on_log=on_log,
             on_memory_update=on_memory_update,
             skip_competitors={"Stripe"},
+            compile_lock=compile_lock,
         ))
         tc_task = asyncio.create_task(run_analyst(
             agent_id="techcrunch",
@@ -213,6 +216,7 @@ async def run_agents():
             statewave_api_key=sw_key,
             on_log=on_log,
             on_memory_update=on_memory_update,
+            compile_lock=compile_lock,
         ))
         ea_task = asyncio.create_task(run_analyst(
             agent_id="earnings",
@@ -224,6 +228,7 @@ async def run_agents():
             statewave_api_key=sw_key,
             on_log=on_log,
             on_memory_update=on_memory_update,
+            compile_lock=compile_lock,
         ))
         results = await asyncio.gather(bloomberg_task, tc_task, ea_task, return_exceptions=True)
 

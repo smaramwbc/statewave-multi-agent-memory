@@ -7,21 +7,51 @@
       "name": "Stripe",
       "pricing_model": "3.5% plus 35 cents per transaction for card payments, raised from 2.9% effective May 1 amid margin pressure",
       "market_positioning": "Premium pricing signals Stripe is moving upmarket toward high-volume enterprise merchants away from SMB developers",
-      "key_differentiators": ["Developer APIs", "Global coverage", "Instant payouts", "Radar fraud tooling"],
-      "confidence_notes": "Bloomberg Intelligence estimates the increase adds roughly 140 million dollars in annualized revenue at current transaction volumes"
+      "key_differentiators": [
+        "Developer APIs",
+        "Global coverage",
+        "Instant payouts",
+        "Radar fraud tooling"
+      ],
+      "confidence_notes": "Bloomberg Intelligence estimates the increase adds roughly 140 million dollars in annualized revenue at current transaction volumes",
+      "claim": {
+        "schema_version": 2,
+        "key": "pricing.processing_rate",
+        "entity_key": "organization:stripe",
+        "qualifiers": {
+          "payment_method": "card",
+          "rate_type": "standard",
+          "currency": "USD",
+          "charge_unit": "transaction"
+        },
+        "value": {
+          "percentage_basis_points": 350,
+          "fixed_minor_units": 35
+        }
+      }
     },
     {
       "name": "Square",
       "pricing_model": "49 dollars per month flat rate for Square for Retail Plus; hardware bundles driving attach rate",
       "market_positioning": "Dominant in US SMB physical retail; hardware ecosystem creates switching costs that online-only processors cannot match",
-      "key_differentiators": ["Hardware ecosystem", "POS integration", "SMB loyalty", "Cash App cross-sell"],
+      "key_differentiators": [
+        "Hardware ecosystem",
+        "POS integration",
+        "SMB loyalty",
+        "Cash App cross-sell"
+      ],
       "confidence_notes": "Square parent Block reported hardware revenue up 18 percent year-over-year in Q1; strong forward guidance"
     },
     {
       "name": "Adyen",
       "pricing_model": "Interchange plus processing fee with no monthly fees; expanding into SMB with new flat-rate tier announced May 2026",
       "market_positioning": "Expanding beyond Fortune 500 into mid-market; flat-rate tier directly targets Square and Stripe developer base",
-      "key_differentiators": ["Enterprise scale", "Unified commerce", "Direct acquiring", "New flat-rate SMB tier"],
+      "key_differentiators": [
+        "Enterprise scale",
+        "Unified commerce",
+        "Direct acquiring",
+        "New flat-rate SMB tier"
+      ],
       "confidence_notes": "Adyen flat-rate at 0.3% plus 11 cents positions it as lowest-cost option for merchants processing over 50k monthly"
     }
   ]
