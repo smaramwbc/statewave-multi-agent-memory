@@ -7,14 +7,39 @@
       "name": "Stripe",
       "pricing_model": "Reverted to 2.9% plus 30 cents per transaction for card payments after widespread merchant and developer backlash forced a public reversal within three weeks",
       "market_positioning": "Developer-first positioning restored; Stripe CEO acknowledged the price increase alienated its core SMB and startup customer segment",
-      "key_differentiators": ["Developer APIs", "Global coverage", "Instant payouts", "Community trust restored"],
-      "confidence_notes": "TechCrunch reporting confirmed by Stripe official blog post and verified against Stripe pricing page as of May 23 2026"
+      "key_differentiators": [
+        "Developer APIs",
+        "Global coverage",
+        "Instant payouts",
+        "Community trust restored"
+      ],
+      "confidence_notes": "TechCrunch reporting confirmed by Stripe official blog post and verified against Stripe pricing page as of May 23 2026",
+      "claim": {
+        "schema_version": 2,
+        "key": "pricing.processing_rate",
+        "entity_key": "organization:stripe",
+        "qualifiers": {
+          "payment_method": "card",
+          "rate_type": "standard",
+          "currency": "USD",
+          "charge_unit": "transaction"
+        },
+        "value": {
+          "percentage_basis_points": 290,
+          "fixed_minor_units": 30
+        }
+      }
     },
     {
       "name": "Adyen",
       "pricing_model": "New flat-rate tier at 0.3% plus 11 cents per transaction for merchants processing under 500k monthly; eliminates minimum monthly fee for qualifying accounts",
       "market_positioning": "Flat-rate launch timed to capture merchants considering leaving Stripe during the price controversy; enrollment up 34 percent month-over-month",
-      "key_differentiators": ["Enterprise scale", "Unified commerce", "Direct acquiring", "Flat-rate SMB expansion"],
+      "key_differentiators": [
+        "Enterprise scale",
+        "Unified commerce",
+        "Direct acquiring",
+        "Flat-rate SMB expansion"
+      ],
       "confidence_notes": "Adyen confirmed enrollment figures in investor call; new tier now available in US, UK, and EU markets"
     }
   ]

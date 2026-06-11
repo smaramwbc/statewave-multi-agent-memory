@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 from pathlib import Path
 from typing import Callable
 
-import httpx
-import litellm
-
 from agents.base import AsyncStatewaveClient, StatewaveError
+from agents.candidates import build_competitor_candidates
 
 SUBJECT_ID = "market-intel"
 
@@ -37,6 +37,7 @@ async def run_analyst(
     on_log: Callable[[str, str], None],
     on_memory_update: Callable[[str, dict], None],
     skip_competitors: set[str] | None = None,
+    compile_lock: asyncio.Lock | None = None,
 ) -> dict:
     on_log(agent_id, f"Starting — source: [bold]{Path(source_file).name}[/bold]")
 
@@ -84,90 +85,56 @@ async def run_analyst(
             assembled = ""
             on_log(agent_id, "No prior memories — starting fresh")
 
-        # Call LLM to extract findings
-        on_log(agent_id, "Calling LLM to extract findings...")
-        try:
-            user_msg = (
-                f"Source document ({source_label}, {published}):\n"
-                f"{json.dumps(source_data, indent=2)}\n\n"
-                f"Existing memory context (from other agents — may be empty):\n"
-                f"{assembled.strip() if assembled.strip() else '(no memories yet)'}\n\n"
-                "Extract findings for each competitor in this source document."
+        # Build structured candidates DETERMINISTICALLY from the source data —
+        # no LLM extraction. Each competitor becomes one episode carrying
+        # separate atomic candidates (pricing / positioning / differentiators);
+        # the pricing candidate carries the authoritative v2 claim verbatim from
+        # the source. Statewave compiles them into atomic memories and resolves
+        # the Stripe pricing contradiction by entity-qualified claim identity.
+        on_log(agent_id, f"Building structured candidates for [green]{len(competitors)} competitors[/green]...")
+        for competitor in competitors:
+            competitor_name = competitor.get("name", "unknown")
+            # Defense-in-depth: skip pre-seeded competitors so we never double-
+            # commit (e.g. a bloomberg→bloomberg supersession of the seed).
+            if skip_competitors and competitor_name in skip_competitors:
+                continue
+
+            raw_text, candidates = build_competitor_candidates(
+                competitor, source_label, published
             )
-            resp = await litellm.acompletion(
-                model=llm_model,
-                api_key=llm_api_key,
-                messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": user_msg},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1,
-                timeout=60.0,
+            keyed = sum(1 for c in candidates if "claim" in c)
+            on_log(
+                agent_id,
+                f"Committing [bold]{competitor_name}[/bold] "
+                f"({len(candidates)} atomic facts, {keyed} structured claim)...",
             )
-            raw = resp.choices[0].message.content or "{}"
-            parsed = json.loads(raw)
-            findings = parsed.get("findings", [])
-            if not findings and isinstance(parsed, list):
-                findings = parsed
-        except Exception as e:
-            on_log(agent_id, f"[red]LLM error: {e}[/red]")
-            return {"episodes": 0, "supersessions": 0, "error": str(e)}
 
-        on_log(agent_id, f"LLM returned [green]{len(findings)} findings[/green]")
-
-        # Commit each finding to Statewave
-        for finding in findings:
-            if not isinstance(finding, dict):
-                continue
-            competitor = finding.get("competitor", "unknown")
-            # Defense-in-depth: skip pre-seeded competitors even if the model echoes
-            # one back from recalled memory context, so we never double-commit (e.g. a
-            # bloomberg→bloomberg supersession of the seeded Stripe fact).
-            if skip_competitors and competitor in skip_competitors:
-                continue
-            pricing = finding.get("pricing_model", "")
-            positioning = finding.get("market_positioning", "")
-            differentiators = finding.get("key_differentiators", [])
-            confidence = finding.get("confidence_notes", "")
-            prose_summary = finding.get("prose_summary", "")
-
-            # Build prose text for Statewave's heuristic compiler
-            prose = (
-                f"{competitor} pricing: {pricing}. "
-                f"Market positioning: {positioning}. "
-                f"Key differentiators: {', '.join(differentiators)}. "
-                f"Source: {source_label}, published {published}. "
-                f"Confidence: {confidence}. "
-                f"{prose_summary}"
-            ).strip()
-
-            on_log(agent_id, f"Committing [bold]{competitor}[/bold]...")
-
-            # Snapshot before commit
-            before_ids = {m["id"] for m in await sw.search_memories(subject_id)}
-
-            try:
-                await sw.post_episode(
-                    subject_id=subject_id,
-                    source=agent_id,
-                    type="agent.analyst.findings",
-                    payload={
-                        "text": prose,
-                        "competitor": competitor,
-                        "pricing_model": pricing,
-                        "market_positioning": positioning,
-                        "key_differentiators": differentiators,
-                        "confidence_notes": confidence,
-                        "source_label": source_label,
-                        "published": published,
-                    },
-                )
-                await sw.compile_memories(subject_id)
-                diff = await sw.get_memory_diff(subject_id, before_ids)
-            except StatewaveError as e:
-                on_log(agent_id, f"[red]Statewave error for {competitor}: {e}[/red]")
-                continue
+            # Serialize post→compile→diff across the concurrent agents. Each
+            # compile_memories() call compiles ALL of the subject's uncompiled
+            # episodes, so without this lock two agents racing on the same
+            # uncompiled episode would double-compile it (duplicate memories and
+            # a spurious dedup supersession). The snapshot/diff is also atomic.
+            lock_cm = compile_lock if compile_lock is not None else contextlib.nullcontext()
+            async with lock_cm:
+                before_ids = {m["id"] for m in await sw.search_memories(subject_id)}
+                try:
+                    await sw.post_episode(
+                        subject_id=subject_id,
+                        source=agent_id,
+                        type="agent.analyst.findings",
+                        payload={
+                            "text": raw_text,
+                            "statewave": {"memory_candidates": candidates},
+                            "competitor": competitor_name,
+                            "source_label": source_label,
+                            "published": published,
+                        },
+                    )
+                    await sw.compile_memories(subject_id)
+                    diff = await sw.get_memory_diff(subject_id, before_ids)
+                except StatewaveError as e:
+                    on_log(agent_id, f"[red]Statewave error for {competitor_name}: {e}[/red]")
+                    continue
 
             episodes_written += 1
             new_count = len(diff["new"])
