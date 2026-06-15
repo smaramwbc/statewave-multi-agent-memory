@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check all Python files
+        run: find . -name "*.py" -not -path "./.venv/*" -exec python -m py_compile {} +
+
+      - name: Check links in markdown
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --exclude 'localhost'
+            --exclude '127.0.0.1'
+            --exclude 'npmjs.com'
+            --exclude 'statewave-launch'
+            '**/*.md'
+          fail: true
