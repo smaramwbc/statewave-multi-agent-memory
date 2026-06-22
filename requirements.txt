@@ -3,4 +3,4 @@ litellm>=1.83.7
 python-dotenv>=1.2.2
 fastapi>=0.137.1
 uvicorn>=0.49.0
-sse-starlette>=3.4.4
+sse-starlette>=3.4.5
