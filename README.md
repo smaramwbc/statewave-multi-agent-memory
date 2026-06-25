@@ -4,7 +4,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
-[![Statewave v1.0](https://img.shields.io/badge/statewave-v1.0-7c3aed.svg)](https://statewave.ai)
+[![Statewave v1.3](https://img.shields.io/badge/statewave-v1.3-7c3aed.svg)](https://statewave.ai)
 
 Three analyst agents ingest conflicting source documents concurrently. Watch Statewave detect the contradiction, supersede the stale fact, and serve the correct answer automatically, with no merge logic written by you.
 
