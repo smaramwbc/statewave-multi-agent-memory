@@ -1,4 +1,4 @@
-httpx>=0.28.1
+statewave>=1.2.0
 litellm>=1.83.7
 python-dotenv>=1.2.2
 fastapi>=0.138.1

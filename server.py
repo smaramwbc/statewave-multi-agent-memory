@@ -14,7 +14,6 @@ import re
 from pathlib import Path
 from uuid import uuid4
 
-import httpx
 import litellm
 
 from dotenv import load_dotenv
@@ -23,6 +22,7 @@ from fastapi.security import APIKeyHeader
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
+from statewave import StatewaveConnectionError
 
 from agents.analyst import run_analyst
 from agents.candidates import build_competitor_candidates
@@ -109,7 +109,7 @@ async def run_agents():
         try:
             await sw.delete_subject(SUBJECT_ID)
             await broadcast({"type": "status", "msg": "Reset: prior subject cleared"})
-        except (StatewaveError, httpx.RequestError):
+        except StatewaveError:
             await broadcast({"type": "status", "msg": "Starting fresh (no prior data)"})
 
     llm_key = os.environ.get("LLM_API_KEY", "")
@@ -164,7 +164,7 @@ async def run_agents():
         # will supersede it — the core conflict resolution demo moment.
         try:
             await _seed_bloomberg_stripe()
-        except httpx.RequestError as exc:
+        except StatewaveConnectionError as exc:
             await broadcast({
                 "type": "agent_log",
                 "agent": "bloomberg",
