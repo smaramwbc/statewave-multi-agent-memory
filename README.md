@@ -22,8 +22,9 @@ Three analyst agents ingest conflicting source documents concurrently. Watch Sta
   - [Architecture](#architecture)
   - [Prerequisites](#prerequisites)
   - [Setup and run locally](#setup-and-run-locally)
-    - [Option A: Docker Compose (recommended)](#option-a-docker-compose-recommended)
-    - [Option B: run Python directly](#option-b-run-python-directly)
+    - [Option A: npx (fastest)](#option-a-npx-fastest)
+    - [Option B: Docker Compose](#option-b-docker-compose)
+    - [Option C: run Python directly](#option-c-run-python-directly)
   - [Usage](#usage)
   - [Source documents](#source-documents)
   - [Environment variables](#environment-variables)
@@ -105,18 +106,61 @@ Demo interface during a full multi-agent run:
 
 ## Prerequisites
 
-- **Docker** and **Docker Compose**: required for Option A (recommended)
+- **Node.js 20+**: required for Option A (fastest — boots Statewave via `npx`) and for the audit inspector
+- **Python 3.11+**: required to run this demo app in all options
 - **LLM API key** from your Groq account (default) or any provider supported by LiteLLM (set `LLM_MODEL` accordingly)
-- **Python 3.11+**: only needed for Option B (run without Docker)
-- **Node.js 20+**: optional, for the audit inspector only
+- **Docker** and **Docker Compose**: only needed for Option B
 
 ---
 
 ## Setup and run locally
 
-### Option A: Docker Compose (recommended)
+### Option A: npx (fastest)
 
-One command brings up the Statewave backend, its database, and the demo app together.
+Statewave ships a one-line launcher — no Docker, no account, runs offline. It boots the API, admin console, and Postgres, and wires itself into your MCP clients.
+
+**1. Clone this repo**
+
+```bash
+git clone https://github.com/smaramwbc/statewave-multi-agent-memory
+cd statewave-multi-agent-memory
+```
+
+**2. Start Statewave**
+
+```bash
+npx @statewavedev/statewave
+```
+
+This starts the Statewave backend at `http://localhost:8100` (leave this running in its own terminal). macOS/Linux/Windows all work; you can also use the install script instead of `npx`:
+
+```bash
+curl -fsSL https://www.statewave.ai/install | sh   # macOS/Linux
+irm https://www.statewave.ai/install.ps1 | iex       # Windows PowerShell
+```
+
+**3. Install Python dependencies and configure environment**
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Open `.env` and set `LLM_API_KEY` to your LLM provider API key.
+
+**4. Start this demo**
+
+```bash
+python server.py
+```
+
+Open [http://localhost:8000](http://localhost:8000) and click **Run pipeline**.
+
+---
+
+### Option B: Docker Compose
+
+Use this if you want Statewave running alongside the demo in containers (e.g. for a production-like Postgres setup), rather than the lightweight `npx` launcher.
 
 **1. Clone this repo**
 
@@ -143,7 +187,7 @@ Open [http://localhost:8000](http://localhost:8000) and click **Run pipeline**.
 
 ---
 
-### Option B: run Python directly
+### Option C: run Python directly
 
 Use this if you prefer to run the demo server outside Docker while still running Statewave via Docker.
 
