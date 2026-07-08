@@ -1,6 +1,6 @@
 httpx>=0.28.1
 litellm>=1.83.7
 python-dotenv>=1.2.2
-fastapi>=0.138.1
+fastapi>=0.139.0
 uvicorn>=0.50.0
 sse-starlette>=3.4.5
