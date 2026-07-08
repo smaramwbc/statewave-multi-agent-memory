@@ -22,13 +22,17 @@ Three analyst agents ingest conflicting source documents concurrently. Watch Sta
   - [Architecture](#architecture)
   - [Prerequisites](#prerequisites)
   - [Setup and run locally](#setup-and-run-locally)
-    - [Option A: Docker Compose (recommended)](#option-a-docker-compose-recommended)
-    - [Option B: run Python directly](#option-b-run-python-directly)
+    - [Option A: npx (fastest)](#option-a-npx-fastest)
+    - [Option B: Docker Compose](#option-b-docker-compose)
+    - [Option C: run Python directly](#option-c-run-python-directly)
   - [Usage](#usage)
   - [Source documents](#source-documents)
   - [Environment variables](#environment-variables)
   - [Statewave API endpoints used](#statewave-api-endpoints-used)
   - [Audit inspector](#audit-inspector)
+    - [Reading the audit trail](#reading-the-audit-trail)
+  - [Adapting to your domain](#adapting-to-your-domain)
+  - [Using Statewave with multi-agent frameworks](#using-statewave-with-multi-agent-frameworks)
   - [Developer reference](#developer-reference)
     - [Project structure](#project-structure)
     - [SSE event types](#sse-event-types)
@@ -105,18 +109,61 @@ Demo interface during a full multi-agent run:
 
 ## Prerequisites
 
-- **Docker** and **Docker Compose**: required for Option A (recommended)
+- **Node.js 20+**: required for Option A (fastest; boots Statewave via `npx`) and for the audit inspector
+- **Python 3.11+**: required to run this demo app in all options
 - **LLM API key** from your Groq account (default) or any provider supported by LiteLLM (set `LLM_MODEL` accordingly)
-- **Python 3.11+**: only needed for Option B (run without Docker)
-- **Node.js 20+**: optional, for the audit inspector only
+- **Docker** and **Docker Compose**: only needed for Option B
 
 ---
 
 ## Setup and run locally
 
-### Option A: Docker Compose (recommended)
+### Option A: npx (fastest)
 
-One command brings up the Statewave backend, its database, and the demo app together.
+Statewave ships a one-line launcher: no Docker, no account, runs offline. It boots the API, admin console, and Postgres, and wires itself into your MCP clients.
+
+**1. Clone this repo**
+
+```bash
+git clone https://github.com/smaramwbc/statewave-multi-agent-memory
+cd statewave-multi-agent-memory
+```
+
+**2. Start Statewave**
+
+```bash
+npx @statewavedev/statewave
+```
+
+This starts the Statewave backend at `http://localhost:8100` (leave this running in its own terminal). macOS/Linux/Windows all work; you can also use the install script instead of `npx`:
+
+```bash
+curl -fsSL https://www.statewave.ai/install | sh   # macOS/Linux
+irm https://www.statewave.ai/install.ps1 | iex       # Windows PowerShell
+```
+
+**3. Install Python dependencies and configure environment**
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Open `.env` and set `LLM_API_KEY` to your LLM provider API key.
+
+**4. Start this demo**
+
+```bash
+python server.py
+```
+
+Open [http://localhost:8000](http://localhost:8000) and click **Run pipeline**.
+
+---
+
+### Option B: Docker Compose
+
+Use this if you want Statewave running alongside the demo in containers (e.g. for a production-like Postgres setup), rather than the lightweight `npx` launcher.
 
 **1. Clone this repo**
 
@@ -143,7 +190,7 @@ Open [http://localhost:8000](http://localhost:8000) and click **Run pipeline**.
 
 ---
 
-### Option B: run Python directly
+### Option C: run Python directly
 
 Use this if you prefer to run the demo server outside Docker while still running Statewave via Docker.
 
@@ -208,13 +255,16 @@ The Bloomberg document intentionally contains a pre-reversal figure. The conflic
 
 ## Environment variables
 
-| Variable            | Required | Default                 | Description                                                                               |
-| ------------------- | -------- | ----------------------- | ----------------------------------------------------------------------------------------- |
-| `LLM_API_KEY`       | Yes      | —                       | API key for your LLM provider                                                             |
-| `LLM_MODEL`         | No       | `groq/llama-3.3-70b-versatile` | LiteLLM model string — change to use a different provider (e.g. `openai/gpt-4o`) |
-| `STATEWAVE_URL`     | No       | `http://localhost:8100` | Statewave server base URL                                                                 |
-| `STATEWAVE_API_KEY` | No       | —                       | API key if your Statewave instance has auth enabled                                       |
-| `APP_SECRET`        | No       | —                       | When set, all demo API endpoints require `X-API-Key: <value>`. Leave unset for local dev. |
+| Variable                    | Required | Default                        | Description                                                                                       |
+| --------------------------- | -------- | ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `LLM_API_KEY`               | Yes      | (none)                         | API key for your LLM provider                                                                     |
+| `LLM_MODEL`                 | No       | `groq/llama-3.3-70b-versatile` | LiteLLM model string. Change to use a different provider, e.g. `openai/gpt-4o`                   |
+| `STATEWAVE_URL`             | No       | `http://localhost:8100`        | Statewave server base URL                                                                         |
+| `STATEWAVE_API_KEY`         | No       | (none)                         | API key if your Statewave instance has auth enabled                                               |
+| `APP_SECRET`                | No       | (none)                         | When set, all demo API endpoints require `X-API-Key: <value>`. Leave unset for local dev.        |
+| `SUBJECT_ID`                | No       | `market-intel`                 | Shared Statewave memory namespace. Change when adapting to a different domain.                    |
+| `SYNTHESIS_SYSTEM_PROMPT`   | No       | (built-in analyst prompt)      | System instruction given to the LLM when answering questions. Override to match your domain.      |
+| `DEMO_SEED_BLOOMBERG_STRIPE`| No       | `true`                         | Pre-seeds the stale Bloomberg Stripe fact. Set to `false` when using your own source files.       |
 
 ---
 
@@ -240,6 +290,99 @@ npm install
 npx tsx src/index.ts --subject-id market-intel
 ```
 
+### Reading the audit trail
+
+The inspector output has three sections:
+
+**Episodes**: raw, append-only inputs from each agent. Each episode shows the source, type, and the payload text that was ingested.
+
+**Memories**: the compiled, typed facts extracted from episodes. Each memory shows:
+- `status: active`: currently the authoritative version of this fact
+- `status: superseded`: an older version that was replaced; still in the audit trail for provenance
+- `superseded_by`: the ID of the memory that replaced it
+
+**Supersessions**: the conflict resolution decisions. Each entry shows:
+- Which memory was replaced and by which
+- The Jaccard word-overlap similarity score that triggered the supersession (threshold: ≥ 0.6)
+- The source episodes on both sides
+
+Example output after the demo run:
+
+```
+EPISODES (5 total)
+  bloomberg/2026-05-16  agent.analyst.findings  Stripe pricing (bloomberg, 2026-05-16): 3.5% + 35¢...
+  techcrunch/2026-06-01 agent.analyst.findings  Stripe pricing (techcrunch, 2026-06-01): 2.9% + 30¢...
+  earnings/2026-06-15   agent.analyst.findings  Stripe pricing (earnings, 2026-06-15): 2.9% + 30¢...
+  bloomberg/2026-05-16  agent.analyst.findings  Square positioning (bloomberg): leading mobile POS...
+  earnings/2026-06-15   agent.analyst.findings  Square revenue miss Q2 2026...
+
+MEMORIES (4 active, 1 superseded)
+  [active]     techcrunch  Stripe pricing (techcrunch, 2026-06-01): 2.9% + 30¢...
+  [superseded] bloomberg   Stripe pricing (bloomberg, 2026-05-16): 3.5% + 35¢...
+                             superseded_by → techcrunch memory (Jaccard: 0.72)
+  [active]     bloomberg   Square positioning (bloomberg): leading mobile POS...
+  [active]     earnings    Square: missed Q2 revenue estimates by 8%...
+  [active]     bloomberg   Square key differentiators: offline mode, hardware...
+
+SUPERSESSIONS (1)
+  bloomberg Stripe pricing → superseded by techcrunch Stripe pricing
+  similarity: 0.72  (threshold: 0.60)
+  older episode: bloomberg/2026-05-16
+  newer episode: techcrunch/2026-06-01
+```
+
+The key insight: Bloomberg's independent Square facts (`positioning`, `differentiators`) survived the Stripe supersession because they are separate atomic memories with no word overlap against the Stripe memories. Only the stale pricing fact was replaced.
+
+---
+
+## Adapting to your domain
+
+The demo is wired for competitive intelligence on payment processors. To run it for a different domain, you only need to change `.env` and drop in new JSON source files. No Python changes required.
+
+**1. Set your subject ID and prompts in `.env`**
+
+```bash
+# The shared memory namespace for this pipeline run
+SUBJECT_ID=healthcare-news
+
+# The instruction given to the LLM when answering questions in the chat panel
+SYNTHESIS_SYSTEM_PROMPT=You are a healthcare policy analyst. Answer using ONLY the provided memory context. Do not invent facts. Be concise: 3-5 sentences.
+
+# Disable the payment-processor seed (only relevant for the default demo sources)
+DEMO_SEED_BLOOMBERG_STRIPE=false
+```
+
+**2. Add your source files to `sources/`**
+
+Each JSON file becomes one agent. The agent ID is the filename stem (e.g. `reuters.json` → agent `reuters`). Source files follow this schema:
+
+```json
+{
+  "source": "reuters",
+  "published": "2024-11-01",
+  "headline": "Optional headline for context",
+  "competitors": [
+    {
+      "name": "Entity Name",
+      "pricing_model": "Relevant factual claim about pricing or cost",
+      "market_positioning": "How this entity positions itself",
+      "key_differentiators": ["differentiator one", "differentiator two"],
+      "confidence_notes": "Source and date of this data"
+    }
+  ]
+}
+```
+
+The field names (`pricing_model`, `market_positioning`, `key_differentiators`) are generic; they map to "primary fact", "positioning fact", and "list of facts" in Statewave. Name them whatever fits your domain. Only `name` is required.
+
+**3. Run**
+
+```bash
+python server.py
+```
+
+All JSON files in `sources/` are discovered automatically. The pipeline runs one agent per file. Conflict detection works the same way regardless of domain.
+
 ---
 
 ## Developer reference
@@ -249,17 +392,22 @@ npx tsx src/index.ts --subject-id market-intel
 ```
 statewave-multi-agent-memory/
 ├── agents/
-│   ├── analyst.py          # Agent logic: ingest → compile → diff
-│   └── base.py             # AsyncStatewaveClient wrapper
+│   ├── analyst.py          # Agent logic: ingest, compile, diff
+│   ├── base.py             # AsyncStatewaveClient wrapper
+│   └── candidates.py       # Deterministic structured memory candidate builder
 ├── sources/
-│   ├── bloomberg.json      # Stale Stripe pricing (3.5%) — to be superseded
-│   ├── techcrunch.json     # Corrected Stripe pricing (2.9%) — supersedes Bloomberg
+│   ├── bloomberg.json      # Stale Stripe pricing (3.5%) to be superseded
+│   ├── techcrunch.json     # Corrected Stripe pricing (2.9%) supersedes Bloomberg
 │   └── earnings.json       # Corroborates TechCrunch, adds Square data
+├── tests/
+│   ├── test_candidates.py  # Unit tests for build_competitor_candidates
+│   └── test_memory_diff.py # Unit tests for the memory diff logic
 ├── inspector/
 │   └── src/index.ts        # Audit trail: episodes, memories, supersessions
 ├── static/
 │   └── index.html          # Browser UI (SSE-driven, zero build step)
 ├── server.py               # FastAPI app: /run /ask /events /memories
+├── statewave_tools.py      # Drop-in helpers: remember(), compile(), recall()
 ├── Dockerfile              # Builds the demo server as a container image
 ├── docker-compose.yml      # Starts db + Statewave API + demo in one command
 ├── requirements.txt
@@ -276,7 +424,139 @@ The browser receives a single `/events` stream. Event types:
 | `memory_update`   | `{ agent, diff }`   | Applies a DOM diff to the Memory panel        |
 | `agents_done`     | `{ supersessions }` | Enables chat input; updates status bar count  |
 | `synthesis_token` | `{ token }`         | Streams one token into the active chat bubble |
-| `synthesis_done`  | —                   | Finalizes the chat bubble                     |
+| `synthesis_done`  | (none)              | Finalizes the chat bubble                     |
+
+---
+
+## Using Statewave with multi-agent frameworks
+
+Most developers building multi-agent systems reach for a framework like CrewAI, LangGraph, or the Claude SDK rather than writing raw orchestration. Statewave slots in as the **shared memory layer** for any of them. The three API calls (`/v1/episodes`, `/v1/memories/compile`, `/v1/context`) are framework-agnostic; you wrap them in a tool, a node, or a hook.
+
+### The pattern (framework-independent)
+
+Copy [`statewave_tools.py`](statewave_tools.py) from this repo into your project. It wraps the official Statewave SDK in three simple functions (`pip install statewave`):
+
+```python
+from statewave_tools import configure, remember, compile, recall
+
+configure("http://localhost:8100")   # point at your Statewave instance
+
+# 1. Ingest: write what your agent found
+remember("my-subject", "agent-a", "Stripe charges 2.9% + 30¢ per transaction.")
+
+# 2. Compile: detect conflicts and supersede stale facts
+compile("my-subject")
+
+# 3. Use: get ranked, conflict-resolved context for the next prompt
+context = recall("my-subject", "What does Stripe charge?")
+# → drop context directly into your LLM system prompt or user message
+```
+
+These three functions are all you need regardless of which framework you use.
+
+### CrewAI
+
+```python
+from crewai.tools import tool
+from statewave_tools import configure, remember, compile, recall
+
+configure("http://localhost:8100")
+
+@tool("Remember a finding")
+def remember_finding(subject_id: str, source: str, text: str) -> str:
+    """Commit a finding to shared memory and compile it."""
+    remember(subject_id, source, text)
+    compile(subject_id)
+    return "committed"
+
+@tool("Recall context")
+def recall_context(subject_id: str, question: str) -> str:
+    """Retrieve conflict-resolved memory context for a question."""
+    return recall(subject_id, question)
+```
+
+Assign both tools to whichever agents need shared memory. Statewave handles conflict resolution when two agents write contradicting facts; you write no merge logic in the crew.
+
+### LangGraph
+
+```python
+from langgraph.graph import StateGraph, MessagesState
+from statewave_tools import configure, remember, compile, recall
+
+configure("http://localhost:8100")
+SUBJECT = "research-subject"
+
+def ingest_node(state: MessagesState):
+    finding = state["messages"][-1].content
+    remember(SUBJECT, "researcher", finding)
+    compile(SUBJECT)
+    return state
+
+def recall_node(state: MessagesState):
+    question = state["messages"][-1].content
+    context = recall(SUBJECT, question)
+    return {"messages": [{"role": "system", "content": context}] + state["messages"]}
+
+graph = StateGraph(MessagesState)
+graph.add_node("ingest", ingest_node)
+graph.add_node("recall", recall_node)
+```
+
+### Claude (Anthropic SDK / tool use)
+
+```python
+import anthropic
+from statewave_tools import configure, remember, compile, recall
+
+configure("http://localhost:8100")
+client = anthropic.Anthropic()
+
+tools = [
+    {
+        "name": "remember",
+        "description": "Commit a finding to shared memory.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "subject_id": {"type": "string"},
+                "text": {"type": "string"}
+            },
+            "required": ["subject_id", "text"]
+        }
+    },
+    {
+        "name": "recall",
+        "description": "Retrieve conflict-resolved context for a question.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "subject_id": {"type": "string"},
+                "question": {"type": "string"}
+            },
+            "required": ["subject_id", "question"]
+        }
+    }
+]
+
+def handle_tool(name, inputs):
+    if name == "remember":
+        remember(inputs["subject_id"], "claude-agent", inputs["text"])
+        compile(inputs["subject_id"])
+        return "committed"
+    if name == "recall":
+        return recall(inputs["subject_id"], inputs["question"])
+```
+
+Multiple Claude agents sharing the same `subject_id` automatically get conflict-resolved memory. This is the same mechanism the demo uses, exposed as native tool calls.
+
+### What you never have to write
+
+Whichever framework you use, Statewave removes the same set of problems:
+
+- **Conflict detection**: no custom similarity checks or "latest wins" rules
+- **Supersession with provenance**: full audit trail of which episode beat which, and why
+- **Token management**: `max_tokens` on `/v1/context` returns a ranked bundle that fits your prompt budget
+- **Concurrent write safety**: episodes are append-only; compile is idempotent
 
 ---
 

@@ -376,15 +376,28 @@
   let totalConflicts = 0;
 
   // ── SSE connection ─────────────────────────────────────────────────────────
-  const es = new EventSource('/events');
+  let es;
+  let _reconnectTimer = null;
 
-  es.onopen = () => setStatus('Connected — click Run Agents to start');
-  es.onerror = () => setStatus('SSE connection lost — refresh page');
+  function connectSSE() {
+    if (es) { try { es.close(); } catch (_) {} }
+    es = new EventSource('/events');
+    es.onopen = () => {
+      if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+      setStatus('Connected — click Run Agents to start');
+    };
+    es.onerror = () => {
+      setStatus('SSE connection lost — reconnecting...');
+      es.close();
+      _reconnectTimer = setTimeout(connectSSE, 3000);
+    };
+    es.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      handleEvent(msg);
+    };
+  }
 
-  es.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    handleEvent(msg);
-  };
+  connectSSE();
 
   function handleEvent(msg) {
     switch (msg.type) {
