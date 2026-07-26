@@ -1,4 +1,4 @@
-statewave>=1.2.0
+statewave>=1.4.0
 litellm>=1.93.0
 python-dotenv>=1.2.2
 fastapi>=0.139.2
