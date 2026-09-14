@@ -1,5 +1,5 @@
 statewave>=1.5.0
-litellm>=1.99.0
+litellm>=1.100.1
 python-dotenv>=1.2.3
 fastapi>=0.141.1
 uvicorn>=0.52.4
