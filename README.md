@@ -413,7 +413,7 @@ statewave-multi-agent-memory/
 ├── static/
 │   └── index.html          # Browser UI (SSE-driven, zero build step)
 ├── server.py               # FastAPI app: /run /ask /events /memories
-├── statewave_tools.py      # Drop-in helpers: remember(), compile(), recall()
+├── statewave_tools.py      # Drop-in helpers: remember(), compile_subject(), recall()
 ├── Dockerfile              # Builds the demo server as a container image
 ├── docker-compose.yml      # Starts db + Statewave API + demo in one command
 ├── requirements.txt
@@ -443,7 +443,7 @@ Most developers building multi-agent systems reach for a framework like CrewAI, 
 Copy [`statewave_tools.py`](statewave_tools.py) from this repo into your project. It wraps the official Statewave SDK in three simple functions (`pip install statewave`):
 
 ```python
-from statewave_tools import configure, remember, compile, recall
+from statewave_tools import configure, remember, compile_subject, recall
 
 configure("http://localhost:8100")   # point at your Statewave instance
 
@@ -451,7 +451,7 @@ configure("http://localhost:8100")   # point at your Statewave instance
 remember("my-subject", "agent-a", "Stripe charges 2.9% + 30¢ per transaction.")
 
 # 2. Compile: detect conflicts and supersede stale facts
-compile("my-subject")
+compile_subject("my-subject")
 
 # 3. Use: get ranked, conflict-resolved context for the next prompt
 context = recall("my-subject", "What does Stripe charge?")
@@ -464,7 +464,7 @@ These three functions are all you need regardless of which framework you use.
 
 ```python
 from crewai.tools import tool
-from statewave_tools import configure, remember, compile, recall
+from statewave_tools import configure, remember, compile_subject, recall
 
 configure("http://localhost:8100")
 
@@ -472,7 +472,7 @@ configure("http://localhost:8100")
 def remember_finding(subject_id: str, source: str, text: str) -> str:
     """Commit a finding to shared memory and compile it."""
     remember(subject_id, source, text)
-    compile(subject_id)
+    compile_subject(subject_id)
     return "committed"
 
 @tool("Recall context")
@@ -487,7 +487,7 @@ Assign both tools to whichever agents need shared memory. Statewave handles conf
 
 ```python
 from langgraph.graph import StateGraph, MessagesState
-from statewave_tools import configure, remember, compile, recall
+from statewave_tools import configure, remember, compile_subject, recall
 
 configure("http://localhost:8100")
 SUBJECT = "research-subject"
@@ -495,7 +495,7 @@ SUBJECT = "research-subject"
 def ingest_node(state: MessagesState):
     finding = state["messages"][-1].content
     remember(SUBJECT, "researcher", finding)
-    compile(SUBJECT)
+    compile_subject(SUBJECT)
     return state
 
 def recall_node(state: MessagesState):
@@ -512,7 +512,7 @@ graph.add_node("recall", recall_node)
 
 ```python
 import anthropic
-from statewave_tools import configure, remember, compile, recall
+from statewave_tools import configure, remember, compile_subject, recall
 
 configure("http://localhost:8100")
 client = anthropic.Anthropic()
@@ -547,7 +547,7 @@ tools = [
 def handle_tool(name, inputs):
     if name == "remember":
         remember(inputs["subject_id"], "claude-agent", inputs["text"])
-        compile(inputs["subject_id"])
+        compile_subject(inputs["subject_id"])
         return "committed"
     if name == "recall":
         return recall(inputs["subject_id"], inputs["question"])
