@@ -2,19 +2,19 @@
 statewave_tools.py — Drop this file into any project to add Statewave memory.
 
 Three functions cover the full loop:
-  remember()  — commit a finding to shared memory
-  compile()   — detect conflicts and supersede stale facts
-  recall()    — retrieve ranked, conflict-resolved context for a prompt
+  remember()        — commit a finding to shared memory
+  compile_subject() — detect conflicts and supersede stale facts
+  recall()          — retrieve ranked, conflict-resolved context for a prompt
 
 Works standalone; no other files from this repo are required.
 Requires: statewave  (pip install statewave)
 
 Quick start:
-    from statewave_tools import configure, remember, compile, recall
+    from statewave_tools import configure, remember, compile_subject, recall
 
     configure("http://localhost:8100")          # point at your Statewave instance
     remember("my-subject", "agent-a", "Stripe charges 2.9% + 30¢ per card transaction.")
-    compile("my-subject")
+    compile_subject("my-subject")
     context = recall("my-subject", "What does Stripe charge?")
     # → pass context directly into your LLM prompt
 """
@@ -45,7 +45,7 @@ def remember(
 ) -> dict:
     """Commit a finding as a raw episode to the shared Statewave subject.
 
-    Call compile() after ingesting to make it retrievable via recall().
+    Call compile_subject() after ingesting to make it retrievable via recall().
 
     Args:
         subject_id: The shared namespace (e.g. "market-intel", "my-project").
@@ -61,7 +61,7 @@ def remember(
     return episode.model_dump(mode="json")
 
 
-def compile(subject_id: str) -> dict:
+def compile_subject(subject_id: str) -> dict:
     """Run Statewave's conflict detector against all uncompiled episodes.
 
     Memories that exceed the Jaccard similarity threshold are automatically
