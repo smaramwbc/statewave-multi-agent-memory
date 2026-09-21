@@ -2,6 +2,6 @@ statewave>=1.5.0
 litellm>=1.100.1
 python-dotenv>=1.2.3
 fastapi>=0.141.1
-uvicorn>=0.52.4
+uvicorn>=0.53.0
 sse-starlette>=3.4.11
 pytest>=9.1.1
