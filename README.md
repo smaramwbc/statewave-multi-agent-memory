@@ -62,7 +62,7 @@ Full documentation at [statewave.ai](https://statewave.ai).
 
 In a typical multi-agent pipeline, two agents can read sources of different freshness and commit contradicting facts to the same shared store. The usual options are: blow up the context window by sending everything to the LLM and hoping it figures it out, or write custom merge logic that is brittle and hard to audit.
 
-Statewave is the third option. When two memories about the same entity exceed a word-overlap similarity threshold, the compiler automatically supersedes the older one and records the decision with full provenance. Your agents query context and only ever see the winner.
+Statewave is the third option. When two memories carry the same structured claim about the same entity and disagree on the value, the compiler automatically supersedes the older one; memories with no structured claim fall back to a word-overlap threshold. The loser is not deleted: it stays in the timeline with `status: superseded` and a `valid_to` timestamp marking where it stopped being current. Your agents query context and only ever see the winner.
 
 ---
 
@@ -72,7 +72,7 @@ You click **Run pipeline**. Three agents: Bloomberg, TechCrunch, and Earnings, s
 
 Then TechCrunch's compilation finishes. The Bloomberg Stripe entry goes red with a strikethrough. The status bar reads **"1 conflict resolved"**. You did not write any code to make that happen.
 
-> **The moment that matters:** Bloomberg committed Stripe's old rate of 3.5% + 35¢. TechCrunch committed the post-reversal rate of 2.9% + 30¢. Statewave's compiler measured Jaccard word-overlap ≥ 0.6 between the two memories, marked Bloomberg as superseded by TechCrunch, and recorded the decision in the audit trail. When you ask _"What is Stripe's current processing fee?"_, the synthesis agent queries context and gets back 2.9%, it never sees the stale figure.
+> **The moment that matters:** Bloomberg committed Stripe's old rate of 3.5% + 35¢. TechCrunch committed the post-reversal rate of 2.9% + 30¢. Both memories carry the same structured claim, `pricing.processing_rate` for `organization:stripe` (card, standard, USD, per transaction), with different values, so the compiler flipped the Bloomberg memory to `status: superseded` and set its `valid_to` to where the TechCrunch memory starts. The wording of the two sentences never entered into it. When you ask _"What is Stripe's current processing fee?"_, the synthesis agent queries context and gets back 2.9%, it never sees the stale figure.
 
 ---
 
@@ -82,7 +82,7 @@ Every agent follows the same three-step loop:
 
 1. **Ingest.** The agent reads its source document, uses the LLM to extract structured findings, and calls `POST /v1/episodes` to append a raw, content-hashed episode to the shared subject. Episodes are append-only; nothing is overwritten.
 
-2. **Compile.** The agent calls `POST /v1/memories/compile`. Statewave's heuristic compiler extracts typed memories from the episode log and runs conflict detection. If two memories about the same fact share enough word overlap (Jaccard ≥ 0.6), the older one is marked superseded with a provenance link to both source episodes.
+2. **Compile.** The agent calls `POST /v1/memories/compile`. Statewave's heuristic compiler extracts typed memories from the episode log and runs conflict detection. Two memories that carry the same single-valued claim key for the same entity are resolved on the claim: a newer, different value supersedes the older one regardless of wording. Memories with no structured claim fall back to word overlap (Jaccard ≥ 0.6 for facts). Either way the older memory is flipped to `status: superseded` with `valid_to` set to where the newer one starts, and it keeps the `source_episode_ids` it was compiled from.
 
 3. **Use.** The synthesis agent calls `POST /v1/context` with the subject ID and the user's question. Statewave returns a ranked, token-bounded `assembled_context` containing only active (non-superseded) memories. The agent passes this bundle directly to the LLM and streams the answer back to the browser.
 
@@ -93,7 +93,7 @@ Every agent follows the same three-step loop:
 | **Episode**             | Append-only raw event: subject ID + source + type + payload. The immutable source of truth.                                               |
 | **Memory**              | Extracted, typed, compiled summary. Traces back to source episodes with confidence scores and provenance.                                 |
 | **Compile**             | Idempotent episodes → memories conversion. Heuristic (local) or LLM compiler. No GPU required.                                            |
-| **Conflict resolution** | When two memories about the same fact exceed the similarity threshold, the older is automatically superseded by the newer. Deterministic. |
+| **Conflict resolution** | Same claim key and entity with a different value, or, for unkeyed memories, enough word overlap: the older is automatically superseded by the newer. Deterministic. |
 | **Context API**         | `POST /v1/context`: ranked, token-bounded context bundle ready for prompts. Same query, same bytes.                                       |
 | **Subject**             | Any entity you track: user, agent, account, repo. Here: one subject (`market-intel`) per pipeline run.                                    |
 
@@ -288,7 +288,7 @@ The Bloomberg document intentionally contains a pre-reversal figure. The conflic
 
 ## Audit inspector
 
-The `inspector/` directory contains a TypeScript tool that prints the full audit trail for any subject: episodes in chronological order, derived memories, and supersession records with source references and Jaccard similarity scores.
+The `inspector/` directory contains a TypeScript tool that reads `GET /v1/timeline` and prints the audit trail for any subject: every episode grouped by the agent that wrote it, the memories agents currently see, and the memories that were superseded along the way.
 
 ```bash
 cd inspector
@@ -298,46 +298,67 @@ npx tsx src/index.ts --subject-id market-intel
 
 ### Reading the audit trail
 
-The inspector output has three sections:
+A header banner is followed by three kinds of section:
 
-**Episodes**: raw, append-only inputs from each agent. Each episode shows the source, type, and the payload text that was ingested.
+**One block per agent**: the raw, append-only episodes that agent committed, oldest first. Each entry shows the ingest timestamp, the episode type, a short episode ID, an excerpt of the payload, and any memory IDs the agent cited in that episode.
 
-**Memories**: the compiled, typed facts extracted from episodes. Each memory shows:
-- `status: active`: currently the authoritative version of this fact
-- `status: superseded`: an older version that was replaced; still in the audit trail for provenance
-- `superseded_by`: the ID of the memory that replaced it
+**Active memories**: the compiled, typed facts agents currently see. Each line shows the memory kind, its confidence, and the first 80 characters of its content.
 
-**Supersessions**: the conflict resolution decisions. Each entry shows:
-- Which memory was replaced and by which
-- The Jaccard word-overlap similarity score that triggered the supersession (threshold: ≥ 0.6)
-- The source episodes on both sides
+**Superseded memories**: the facts that were replaced. Each line shows the kind, the content preview, and the `valid_to` timestamp at which the memory stopped being current. This section is printed only when the subject has superseded memories.
 
-Example output after the demo run:
+What the inspector does not show: it does not print which memory replaced which, and it does not compute or print similarity scores. Statewave records a supersession as `status: superseded` plus a `valid_to` boundary on the losing memory, so the winner-to-loser pairing is not in the timeline payload for the inspector to print. Read it off the two sections instead: the superseded entry and the active entry that took its place describe the same fact, and the `valid_to` timestamp is where the handover happened.
+
+Example output after a demo run, abbreviated:
 
 ```
-EPISODES (5 total)
-  bloomberg/2026-05-16  agent.analyst.findings  Stripe pricing (bloomberg, 2026-05-16): 3.5% + 35¢...
-  techcrunch/2026-06-01 agent.analyst.findings  Stripe pricing (techcrunch, 2026-06-01): 2.9% + 30¢...
-  earnings/2026-06-15   agent.analyst.findings  Stripe pricing (earnings, 2026-06-15): 2.9% + 30¢...
-  bloomberg/2026-05-16  agent.analyst.findings  Square positioning (bloomberg): leading mobile POS...
-  earnings/2026-06-15   agent.analyst.findings  Square revenue miss Q2 2026...
+╔════════════════════════════════════════════════════════════════════════╗
+║  Statewave Audit Trail — Cross-Run Intelligence                         ║
+║  Subject: market-intel                                                   ║
+║  8 episode(s)  ·  20 active  ·  4 superseded                                        ║
+╚════════════════════════════════════════════════════════════════════════╝
 
-MEMORIES (4 active, 1 superseded)
-  [active]     techcrunch  Stripe pricing (techcrunch, 2026-06-01): 2.9% + 30¢...
-  [superseded] bloomberg   Stripe pricing (bloomberg, 2026-05-16): 3.5% + 35¢...
-                             superseded_by → techcrunch memory (Jaccard: 0.72)
-  [active]     bloomberg   Square positioning (bloomberg): leading mobile POS...
-  [active]     earnings    Square: missed Q2 revenue estimates by 8%...
-  [active]     bloomberg   Square key differentiators: offline mode, hardware...
+── BLOOMBERG  (3 episode(s))  ──────────────────────────────────────────
 
-SUPERSESSIONS (1)
-  bloomberg Stripe pricing → superseded by techcrunch Stripe pricing
-  similarity: 0.72  (threshold: 0.60)
-  older episode: bloomberg/2026-05-16
-  newer episode: techcrunch/2026-06-01
+  2026-09-24T22:34:18.180Z  │  agent.analyst.findings
+  ep: eac33f6e…
+  {"text":"bloomberg (2026-05-16) on Stripe — pricing: 3.5% plus 35 cents per transaction for card payments, raised from 2
+  cited memories: (none — writing phase)
+
+  [two more bloomberg episodes]
+
+── TECHCRUNCH  (2 episode(s))  ─────────────────────────────────────────
+
+  2026-09-24T22:34:19.742Z  │  agent.analyst.findings
+  ep: 0a4891d5…
+  {"text":"techcrunch (2026-05-23) on Stripe — pricing: Reverted to 2.9% plus 30 cents per transaction for card payments a
+  cited memories: (none — writing phase)
+
+  [one more techcrunch episode, then the earnings block]
+
+── ACTIVE MEMORIES  (20 — what agents see now)  ────────────────────────
+
+  [profile_fact      conf:0.90]  Stripe key differentiators (bloomberg): Developer APIs, Global coverage, Instant
+  [profile_fact      conf:0.90]  Stripe market positioning (bloomberg): Premium pricing signals Stripe is moving 
+  [profile_fact      conf:0.90]  Square pricing (bloomberg, 2026-05-16): 49 dollars per month flat rate for Squar
+  [11 more active memories]
+  [profile_fact      conf:0.90]  Stripe pricing (earnings, 2026-05-20): Developer ecosystem growth accelerating d
+  [5 more active memories]
+
+── SUPERSEDED MEMORIES  (4 — overwritten by newer intel)  ──────────────
+
+  [SUPERSEDED  profile_fact    ]  Stripe pricing (bloomberg, 2026-05-16): 3.5% plus 35 cents per transaction for c
+  └─ replaced at: 2026-09-24T22:34:19.742Z
+
+  [SUPERSEDED  profile_fact    ]  Square key differentiators (bloomberg): Hardware ecosystem, POS integration, SMB
+  └─ replaced at: 2026-09-24T22:34:19.825Z
+
+  [two more superseded memories]
+
+  ↳ These memories existed but were automatically superseded when newer
+    contradicting intelligence was compiled. Agents never see them.
 ```
 
-The key insight: Bloomberg's independent Square facts (`positioning`, `differentiators`) survived the Stripe supersession because they are separate atomic memories with no word overlap against the Stripe memories. Only the stale pricing fact was replaced.
+The key insight: Bloomberg's independent Square facts are separate atomic memories that carry neither Stripe's claim identity nor enough word overlap with the Stripe memories, so the Stripe pricing supersession left them untouched. Only the stale Stripe pricing fact was replaced by it.
 
 ---
 

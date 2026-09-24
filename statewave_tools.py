@@ -64,8 +64,9 @@ def remember(
 def compile_subject(subject_id: str) -> dict:
     """Run Statewave's conflict detector against all uncompiled episodes.
 
-    Memories that exceed the Jaccard similarity threshold are automatically
-    superseded — the older one is marked stale with a provenance link.
+    Conflicts are resolved automatically: a newer, different value for the same
+    structured claim, or enough word overlap when a memory carries no claim,
+    flips the older memory to status "superseded" and stamps its valid_to.
     This is idempotent; calling it multiple times is safe. It waits for the
     compile to finish so the results are retrievable via recall() right away.
 
