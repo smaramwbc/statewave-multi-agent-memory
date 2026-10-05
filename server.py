@@ -75,6 +75,13 @@ async def lifespan(app: FastAPI):
 _APP_SECRET = os.environ.get("APP_SECRET", "")
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+_background: set[asyncio.Task] = set()
+
+def _spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+
 
 async def _require_auth(key: str | None = Security(_api_key_header)) -> None:
     if not _APP_SECRET:
@@ -92,14 +99,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # ── SSE helpers ───────────────────────────────────────────────────────────────
 
 async def broadcast(event: dict) -> None:
-    dead: list[str] = []
     for sid, q in list(_queues.items()):
-        try:
-            await q.put(event)
-        except Exception:
-            dead.append(sid)
-    for sid in dead:
-        _queues.pop(sid, None)
+        await q.put(event)
 
 
 def _sw() -> AsyncStatewaveClient:
@@ -154,10 +155,10 @@ async def run_agents():
     def on_log(agent_id: str, msg: str) -> None:
         # Strip Rich markup tags for web display
         clean = _strip_markup(msg)
-        asyncio.create_task(broadcast({"type": "agent_log", "agent": agent_id, "msg": clean}))
+        _spawn(broadcast({"type": "agent_log", "agent": agent_id, "msg": clean}))
 
     def on_memory_update(agent_id: str, diff: dict) -> None:
-        asyncio.create_task(broadcast({"type": "memory_update", "agent": agent_id, "diff": diff}))
+        _spawn(broadcast({"type": "memory_update", "agent": agent_id, "diff": diff}))
 
     async def _seed_bloomberg_stripe() -> None:
         """Seed Bloomberg's stale Stripe pricing (3.5% + 35¢) as structured atomic
@@ -256,7 +257,7 @@ async def run_agents():
 
         await broadcast({"type": "agents_done", "supersessions": total_supersessions})
 
-    asyncio.create_task(_run())
+    _spawn(_run())
     return {"status": "started"}
 
 
