@@ -17,18 +17,18 @@ from pathlib import Path
 from uuid import uuid4
 
 import litellm
-
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Security
-from fastapi.security import APIKeyHeader
 from fastapi.responses import RedirectResponse
+from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, StrictStr, field_validator
 from sse_starlette.sse import EventSourceResponse
 from statewave import StatewaveConnectionError
 
 from agents.analyst import run_analyst
-from agents.candidates import build_competitor_candidates
 from agents.base import AsyncStatewaveClient, StatewaveError
+from agents.candidates import build_competitor_candidates
 
 load_dotenv()
 
@@ -46,6 +46,20 @@ _DEFAULT_SYNTHESIS_PROMPT = (
 )
 _SYNTHESIS_PROMPT = os.environ.get("SYNTHESIS_SYSTEM_PROMPT", _DEFAULT_SYNTHESIS_PROMPT)
 _DEMO_SEED = os.environ.get("DEMO_SEED_BLOOMBERG_STRIPE", "true").lower() == "true"
+
+
+class AskRequest(BaseModel):
+    """Validated payload for the synthesis endpoint."""
+
+    question: StrictStr
+
+    @field_validator("question")
+    @classmethod
+    def question_must_not_be_blank(cls, value: str) -> str:
+        question = value.strip()
+        if not question:
+            raise ValueError("question must not be blank")
+        return question
 
 
 def _discover_agents(sources_dir: Path) -> list[tuple[str, str]]:
@@ -261,11 +275,9 @@ async def run_agents():
 
 
 @app.post("/ask", dependencies=[Security(_require_auth)])
-async def ask(body: dict):
+async def ask(body: AskRequest):
     """Synthesis: recall from Statewave + stream LLM answer via SSE."""
-    question = (body.get("question") or "").strip()
-    if not question:
-        return {"error": "no question"}
+    question = body.question
 
     await broadcast({"type": "synthesis_start", "question": question})
 
@@ -274,7 +286,7 @@ async def ask(body: dict):
             ctx = await sw.get_context(SUBJECT_ID, task=question, max_tokens=4000)
         except StatewaveError as e:
             await broadcast({"type": "synthesis_error", "msg": str(e)})
-            return {"error": str(e)}
+            raise HTTPException(status_code=502, detail=str(e)) from e
 
     assembled = ctx.get("assembled_context", "")
     facts = ctx.get("facts", [])
@@ -283,7 +295,7 @@ async def ask(body: dict):
     if not assembled.strip():
         await broadcast({"type": "synthesis_error",
                          "msg": "No memories found. Run agents first."})
-        return {"error": "no memories"}
+        raise HTTPException(status_code=409, detail="No memories found. Run agents first.")
 
     await broadcast({"type": "synthesis_context",
                      "fact_count": len(facts), "token_estimate": token_est})
