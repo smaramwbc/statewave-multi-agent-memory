@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 from statewave import StatewaveConnectionError
 
@@ -35,6 +36,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1)
 SUBJECT_ID = os.environ.get("SUBJECT_ID", "market-intel")
 SOURCES_DIR = Path(__file__).parent / "sources"
 
@@ -261,11 +264,11 @@ async def run_agents():
 
 
 @app.post("/ask", dependencies=[Security(_require_auth)])
-async def ask(body: dict):
+async def ask(body: AskRequest):
     """Synthesis: recall from Statewave + stream LLM answer via SSE."""
-    question = (body.get("question") or "").strip()
+    question = body.question.strip()
     if not question:
-        return {"error": "no question"}
+        raise HTTPException(status_code=400, detail="no question")
 
     await broadcast({"type": "synthesis_start", "question": question})
 
@@ -274,7 +277,7 @@ async def ask(body: dict):
             ctx = await sw.get_context(SUBJECT_ID, task=question, max_tokens=4000)
         except StatewaveError as e:
             await broadcast({"type": "synthesis_error", "msg": str(e)})
-            return {"error": str(e)}
+            raise HTTPException(status_code=502, detail=str(e))
 
     assembled = ctx.get("assembled_context", "")
     facts = ctx.get("facts", [])
@@ -283,7 +286,10 @@ async def ask(body: dict):
     if not assembled.strip():
         await broadcast({"type": "synthesis_error",
                          "msg": "No memories found. Run agents first."})
-        return {"error": "no memories"}
+        raise HTTPException(
+            status_code=409,
+            detail="No memories found. Run agents first."
+        )
 
     await broadcast({"type": "synthesis_context",
                      "fact_count": len(facts), "token_estimate": token_est})
