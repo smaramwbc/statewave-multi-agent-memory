@@ -89,17 +89,27 @@ app = FastAPI(title="Statewave Multi-Agent Demo", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+# ── Background task registry ──────────────────────────────────────────────────
+
+# Hold each background task here until it finishes. The event loop keeps only a
+# weak reference to a task. A task with no strong reference can stop mid-run
+# without a warning, and its exception is never observed.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> asyncio.Task:
+    """Schedule coro and hold a strong reference until it finishes."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
+
+
 # ── SSE helpers ───────────────────────────────────────────────────────────────
 
 async def broadcast(event: dict) -> None:
-    dead: list[str] = []
-    for sid, q in list(_queues.items()):
-        try:
-            await q.put(event)
-        except Exception:
-            dead.append(sid)
-    for sid in dead:
-        _queues.pop(sid, None)
+    for q in list(_queues.values()):
+        await q.put(event)
 
 
 def _sw() -> AsyncStatewaveClient:
@@ -154,10 +164,10 @@ async def run_agents():
     def on_log(agent_id: str, msg: str) -> None:
         # Strip Rich markup tags for web display
         clean = _strip_markup(msg)
-        asyncio.create_task(broadcast({"type": "agent_log", "agent": agent_id, "msg": clean}))
+        _spawn(broadcast({"type": "agent_log", "agent": agent_id, "msg": clean}))
 
     def on_memory_update(agent_id: str, diff: dict) -> None:
-        asyncio.create_task(broadcast({"type": "memory_update", "agent": agent_id, "diff": diff}))
+        _spawn(broadcast({"type": "memory_update", "agent": agent_id, "diff": diff}))
 
     async def _seed_bloomberg_stripe() -> None:
         """Seed Bloomberg's stale Stripe pricing (3.5% + 35¢) as structured atomic
@@ -256,7 +266,7 @@ async def run_agents():
 
         await broadcast({"type": "agents_done", "supersessions": total_supersessions})
 
-    asyncio.create_task(_run())
+    _spawn(_run())
     return {"status": "started"}
 
 
