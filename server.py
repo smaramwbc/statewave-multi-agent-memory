@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
 from statewave import StatewaveConnectionError
 
@@ -260,12 +261,24 @@ async def run_agents():
     return {"status": "started"}
 
 
+class AskRequest(BaseModel):
+    """Body of POST /ask. The question must be a non-blank string."""
+
+    question: str = Field(min_length=1)
+
+    @field_validator("question")
+    @classmethod
+    def _require_non_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("question must not be blank")
+        return value
+
+
 @app.post("/ask", dependencies=[Security(_require_auth)])
-async def ask(body: dict):
+async def ask(body: AskRequest):
     """Synthesis: recall from Statewave + stream LLM answer via SSE."""
-    question = (body.get("question") or "").strip()
-    if not question:
-        return {"error": "no question"}
+    question = body.question
 
     await broadcast({"type": "synthesis_start", "question": question})
 
@@ -274,7 +287,7 @@ async def ask(body: dict):
             ctx = await sw.get_context(SUBJECT_ID, task=question, max_tokens=4000)
         except StatewaveError as e:
             await broadcast({"type": "synthesis_error", "msg": str(e)})
-            return {"error": str(e)}
+            raise HTTPException(status_code=502, detail=str(e))
 
     assembled = ctx.get("assembled_context", "")
     facts = ctx.get("facts", [])
@@ -283,7 +296,7 @@ async def ask(body: dict):
     if not assembled.strip():
         await broadcast({"type": "synthesis_error",
                          "msg": "No memories found. Run agents first."})
-        return {"error": "no memories"}
+        raise HTTPException(status_code=409, detail="No memories found. Run agents first.")
 
     await broadcast({"type": "synthesis_context",
                      "fact_count": len(facts), "token_estimate": token_est})
