@@ -81,20 +81,38 @@ def compile_subject(subject_id: str) -> dict:
     return result.model_dump(mode="json")
 
 
-def recall(subject_id: str, question: str, max_tokens: int = 2000) -> str:
+def recall(
+    subject_id: str,
+    question: str,
+    max_tokens: int = 2000,
+    caller_id: str = "analyst",
+    caller_type: str = "agent",
+) -> str:
     """Retrieve ranked, conflict-resolved context ready to drop into a prompt.
 
     Only active (non-superseded) memories are returned. The result is
     token-bounded to max_tokens and ranked by relevance to question.
 
+    The helper sends a caller identity with every request. A tenant that sets
+    require_caller_identity rejects a request with no identity. A policy rule
+    in enforce mode matches on caller_type.
+
     Args:
-        subject_id: The shared namespace to query.
-        question:   The task or question driving the context retrieval.
-        max_tokens: Maximum tokens in the returned context bundle.
+        subject_id:  The shared namespace to query.
+        question:    The task or question driving the context retrieval.
+        max_tokens:  Maximum tokens in the returned context bundle.
+        caller_id:   Stable id of the caller (default "analyst").
+        caller_type: Role the policy rules match on (default "agent").
 
     Returns:
         assembled_context string — pass this directly to your LLM.
     """
     with _client() as sw:
-        ctx = sw.get_context(subject_id, question, max_tokens=max_tokens)
+        ctx = sw.get_context(
+            subject_id,
+            question,
+            max_tokens=max_tokens,
+            caller_id=caller_id,
+            caller_type=caller_type,
+        )
     return ctx.assembled_context
