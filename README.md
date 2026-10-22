@@ -267,7 +267,7 @@ The Bloomberg document intentionally contains a pre-reversal figure. The conflic
 | `LLM_MODEL`                 | No       | `groq/llama-3.3-70b-versatile` | LiteLLM model string. Change to use a different provider, e.g. `openai/gpt-4o`                   |
 | `STATEWAVE_URL`             | No       | `http://localhost:8100`        | Statewave server base URL                                                                         |
 | `STATEWAVE_API_KEY`         | No       | (none)                         | API key if your Statewave instance has auth enabled                                               |
-| `APP_SECRET`                | No       | (none)                         | When set, all demo API endpoints require `X-API-Key: <value>`. Leave unset for local dev.        |
+| `APP_SECRET`                | No       | (none)                         | For API-only deployments: requires `X-API-Key: <value>` on all demo API endpoints. Enabling it prevents bundled UI access because the UI does not send this header. Leave unset for local UI use. |
 | `SUBJECT_ID`                | No       | `market-intel`                 | Shared Statewave memory namespace. Change when adapting to a different domain.                    |
 | `SYNTHESIS_SYSTEM_PROMPT`   | No       | (built-in analyst prompt)      | System instruction given to the LLM when answering questions. Override to match your domain.      |
 | `DEMO_SEED_BLOOMBERG_STRIPE`| No       | `true`                         | Pre-seeds the stale Bloomberg Stripe fact. Set to `false` when using your own source files.       |

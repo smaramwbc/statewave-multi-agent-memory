@@ -8,6 +8,7 @@ Then open http://localhost:8000
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -79,7 +80,7 @@ _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 async def _require_auth(key: str | None = Security(_api_key_header)) -> None:
     if not _APP_SECRET:
         return  # auth disabled when APP_SECRET is unset (local dev)
-    if key != _APP_SECRET:
+    if key is None or not hmac.compare_digest(key.encode("utf-8"), _APP_SECRET.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
 
 # Per-connection SSE queues: session_id -> asyncio.Queue
