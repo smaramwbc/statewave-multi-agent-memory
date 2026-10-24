@@ -329,9 +329,9 @@ async def get_memories():
     async with _sw() as sw:
         try:
             memories = await sw.search_memories(SUBJECT_ID)
-            return {"memories": memories}
-        except StatewaveError:
-            return {"memories": []}
+        except StatewaveError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+    return {"memories": [m for m in memories if m.get("status", "active") == "active"]}
 
 
 # ── Markup stripping ──────────────────────────────────────────────────────────
