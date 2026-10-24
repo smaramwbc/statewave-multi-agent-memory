@@ -135,15 +135,23 @@ async def events():
     return EventSourceResponse(generator())
 
 
+_run_in_progress = False
+
+
+def _clear_run_flag(_task: asyncio.Task) -> None:
+    global _run_in_progress
+    _run_in_progress = False
+
+
 @app.post("/run", dependencies=[Security(_require_auth)])
 async def run_agents():
     """Reset Statewave subject and launch analyst agents for each source file."""
-    async with _sw() as sw:
-        try:
-            await sw.delete_subject(SUBJECT_ID)
-            await broadcast({"type": "status", "msg": "Reset: prior subject cleared"})
-        except StatewaveError:
-            await broadcast({"type": "status", "msg": "Starting fresh (no prior data)"})
+    global _run_in_progress
+    if _run_in_progress:
+        raise HTTPException(status_code=409, detail="A run is already in progress")
+    # Claim the run before the first await. A second /run returns 409 until this
+    # run's task finishes, so no run wipes another run's subject underneath it.
+    _run_in_progress = True
 
     agents = _discover_agents(SOURCES_DIR)
     llm_key = os.environ.get("LLM_API_KEY", "")
@@ -192,6 +200,16 @@ async def run_agents():
 
     async def _run():
         await broadcast({"type": "run_started"})
+
+        # Reset here, inside the run: the run already owns the subject (the flag
+        # above rejects any concurrent /run), so the wipe cannot delete memories
+        # that another run is still writing.
+        async with _sw() as sw:
+            try:
+                await sw.delete_subject(SUBJECT_ID)
+                await broadcast({"type": "status", "msg": "Reset: prior subject cleared"})
+            except StatewaveError:
+                await broadcast({"type": "status", "msg": "Starting fresh (no prior data)"})
 
         # Demo mode: pre-seed Bloomberg's stale Stripe pricing so TechCrunch's
         # 2.9% fact will supersede it — the core conflict resolution demo moment.
@@ -256,7 +274,8 @@ async def run_agents():
 
         await broadcast({"type": "agents_done", "supersessions": total_supersessions})
 
-    asyncio.create_task(_run())
+    task = asyncio.create_task(_run())
+    task.add_done_callback(_clear_run_flag)
     return {"status": "started"}
 
 
