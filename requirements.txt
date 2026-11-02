@@ -4,4 +4,4 @@ python-dotenv>=1.2.4
 fastapi>=0.143.2
 uvicorn>=0.54.0
 sse-starlette>=3.5.0
-pytest>=9.1.1
+pytest>=9.2.0
